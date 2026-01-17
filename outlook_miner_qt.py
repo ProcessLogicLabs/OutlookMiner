@@ -545,7 +545,19 @@ class OutlookWorker(QThread):
             end_date = local_tz.localize(datetime.datetime.strptime(end_date_str, "%m/%d/%Y") +
                                           datetime.timedelta(days=1) - datetime.timedelta(seconds=1))
 
-            outlook = win32com.client.Dispatch("Outlook.Application")
+            try:
+                outlook = win32com.client.Dispatch("Outlook.Application")
+            except Exception as e:
+                error_code = getattr(e, 'hresult', None) or (e.args[0] if e.args else None)
+                if error_code == -2147221005:
+                    raise Exception(
+                        "Cannot connect to Outlook. Please ensure:\n\n"
+                        "1. Microsoft Outlook is installed\n"
+                        "2. Outlook is open and running\n"
+                        "3. Python and Outlook are both 32-bit or both 64-bit\n"
+                        "4. Try running as Administrator"
+                    )
+                raise Exception(f"Failed to connect to Outlook: {str(e)}")
             mapi = outlook.GetNamespace("MAPI")
             folder = self._get_outlook_folder(mapi)
             folder.Items.Sort("[SentOn]", True)
@@ -630,7 +642,19 @@ class OutlookWorker(QThread):
 
             self.signals.clear_subjects.emit()
 
-            outlook = win32com.client.Dispatch("Outlook.Application")
+            try:
+                outlook = win32com.client.Dispatch("Outlook.Application")
+            except Exception as e:
+                error_code = getattr(e, 'hresult', None) or (e.args[0] if e.args else None)
+                if error_code == -2147221005:
+                    raise Exception(
+                        "Cannot connect to Outlook. Please ensure:\n\n"
+                        "1. Microsoft Outlook is installed\n"
+                        "2. Outlook is open and running\n"
+                        "3. Python and Outlook are both 32-bit or both 64-bit\n"
+                        "4. Try running as Administrator"
+                    )
+                raise Exception(f"Failed to connect to Outlook: {str(e)}")
             mapi = outlook.GetNamespace("MAPI")
             self._log(f"Accessing Outlook account: {mapi.CurrentUser.Name}")
 
