@@ -731,18 +731,37 @@ class ConfigDialog(QDialog):
 
         self.prefix_edit = QLineEdit(prefix)
         self.prefix_edit.setPlaceholderText("e.g., 759,123")
+        self.prefix_edit.setToolTip(
+            "Comma-separated list of file number prefixes to filter emails.\n"
+            "Only emails with attachments or subjects containing these prefixes will be processed.\n"
+            "Leave empty to process all matching emails."
+        )
         form.addRow("File Number Prefixes:", self.prefix_edit)
 
         self.delay_edit = QLineEdit(delay)
         self.delay_edit.setPlaceholderText("Seconds between emails")
+        self.delay_edit.setToolTip(
+            "Time delay in seconds between forwarding each email.\n"
+            "Use this to avoid overwhelming the mail server.\n"
+            "Set to 0 for no delay."
+        )
         form.addRow("Delay (Sec.):", self.delay_edit)
 
         self.require_attach_check = QCheckBox()
         self.require_attach_check.setChecked(require_attach)
+        self.require_attach_check.setToolTip(
+            "When checked, only emails with attachments will be forwarded.\n"
+            "Uncheck to forward emails regardless of attachments."
+        )
         form.addRow("Require Attachments:", self.require_attach_check)
 
         self.skip_fwd_check = QCheckBox()
         self.skip_fwd_check.setChecked(skip_fwd)
+        self.skip_fwd_check.setToolTip(
+            "When checked, emails that have already been forwarded will be skipped.\n"
+            "This prevents duplicate forwards using the tracking database.\n"
+            "Uncheck to re-forward previously forwarded emails."
+        )
         form.addRow("Skip Previously Forwarded:", self.skip_fwd_check)
 
         layout.addLayout(form)
@@ -832,6 +851,48 @@ class OutlookMinerWindow(QMainWindow):
 
         header_layout.addStretch()
 
+        # Hamburger menu button in header for Configuration
+        self.config_menu_btn = QToolButton()
+        self.config_menu_btn.setText("☰")
+        self.config_menu_btn.setFixedSize(36, 36)
+        self.config_menu_btn.setStyleSheet(f"""
+            QToolButton {{
+                background-color: transparent;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 4px;
+                font-size: 16pt;
+                color: {COLORS['header_text']};
+            }}
+            QToolButton:hover {{
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.5);
+            }}
+        """)
+        self.config_menu_btn.setPopupMode(QToolButton.InstantPopup)
+
+        # Create menu for config button
+        config_menu = QMenu(self.config_menu_btn)
+        config_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {COLORS['frame_bg']};
+                border: 1px solid {COLORS['border']};
+                padding: 5px;
+            }}
+            QMenu::item {{
+                padding: 8px 20px;
+            }}
+            QMenu::item:selected {{
+                background-color: {COLORS['primary']};
+                color: white;
+            }}
+        """)
+
+        config_action = config_menu.addAction("Configuration...")
+        config_action.triggered.connect(self.show_config_dialog)
+
+        self.config_menu_btn.setMenu(config_menu)
+        header_layout.addWidget(self.config_menu_btn)
+
         main_layout.addWidget(header)
 
         # Content area
@@ -855,62 +916,15 @@ class OutlookMinerWindow(QMainWindow):
         email_layout.setContentsMargins(15, 20, 15, 15)
         email_layout.setSpacing(12)
 
-        # Forward To row with combobox and hamburger menu
-        forward_to_layout = QHBoxLayout()
-        forward_to_layout.setSpacing(5)
-
+        # Forward To combobox with right-click context menu
         self.recipient_combo = QComboBox()
         self.recipient_combo.setEditable(True)
         self.recipient_combo.setMinimumWidth(320)
         self.recipient_combo.currentTextChanged.connect(self.on_recipient_changed)
-        forward_to_layout.addWidget(self.recipient_combo)
+        self.recipient_combo.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.recipient_combo.customContextMenuRequested.connect(self.show_email_context_menu)
 
-        # Hamburger menu button next to email dropdown
-        self.email_menu_btn = QToolButton()
-        self.email_menu_btn.setText("☰")
-        self.email_menu_btn.setFixedSize(32, 32)
-        self.email_menu_btn.setStyleSheet(f"""
-            QToolButton {{
-                background-color: {COLORS['tab_inactive']};
-                border: 1px solid {COLORS['input_border']};
-                border-radius: 4px;
-                font-size: 14pt;
-                color: {COLORS['text']};
-            }}
-            QToolButton:hover {{
-                background-color: {COLORS['primary']};
-                color: white;
-            }}
-        """)
-        self.email_menu_btn.setPopupMode(QToolButton.InstantPopup)
-
-        # Create menu for hamburger button
-        email_menu = QMenu(self.email_menu_btn)
-        email_menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {COLORS['frame_bg']};
-                border: 1px solid {COLORS['border']};
-                padding: 5px;
-            }}
-            QMenu::item {{
-                padding: 8px 20px;
-            }}
-            QMenu::item:selected {{
-                background-color: {COLORS['primary']};
-                color: white;
-            }}
-        """)
-
-        config_action = email_menu.addAction("Configuration...")
-        config_action.triggered.connect(self.show_config_dialog)
-        email_menu.addSeparator()
-        self.delete_action = email_menu.addAction("Delete Email Config")
-        self.delete_action.triggered.connect(self.delete_current_config)
-
-        self.email_menu_btn.setMenu(email_menu)
-        forward_to_layout.addWidget(self.email_menu_btn)
-
-        email_layout.addRow("Forward To:", forward_to_layout)
+        email_layout.addRow("Forward To:", self.recipient_combo)
 
         self.subject_edit = QLineEdit()
         self.subject_edit.setPlaceholderText("e.g., BILLING INVOICE")
@@ -1089,6 +1103,29 @@ class OutlookMinerWindow(QMainWindow):
             self.config_require_attachments = values['require_attachments']
             self.config_skip_forwarded = values['skip_forwarded']
             self.log("Configuration updated")
+
+    def show_email_context_menu(self, position):
+        """Show right-click context menu for email combobox."""
+        context_menu = QMenu(self)
+        context_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {COLORS['frame_bg']};
+                border: 1px solid {COLORS['border']};
+                padding: 5px;
+            }}
+            QMenu::item {{
+                padding: 8px 20px;
+            }}
+            QMenu::item:selected {{
+                background-color: {COLORS['primary']};
+                color: white;
+            }}
+        """)
+
+        delete_action = context_menu.addAction("Delete Email")
+        delete_action.triggered.connect(self.delete_current_config)
+
+        context_menu.exec_(self.recipient_combo.mapToGlobal(position))
 
     def delete_current_config(self):
         """Delete current email configuration."""

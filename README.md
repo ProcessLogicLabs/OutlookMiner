@@ -90,6 +90,61 @@ Click **Scan and Forward** to automatically forward all matching emails to the c
 #### Cancel Operation
 Click **Cancel** to stop an ongoing search or forward operation.
 
+## How It Works
+
+### Email Scanning Process
+
+When you click **Preview** or **Scan and Forward**, the application performs the following steps:
+
+1. **Connect to Outlook**: Establishes a COM connection to Microsoft Outlook using the Windows API
+2. **Access Sent Items**: Opens your Sent Items folder and retrieves the email count
+3. **Apply Subject Filter**: Uses Outlook's MAPI filter to find emails containing your subject keyword (case-insensitive)
+4. **Date Range Filtering**: Checks each email's sent date against your specified date range
+5. **File Number Extraction**: If prefixes are specified, extracts file numbers from attachment filenames or email subjects
+6. **Duplicate Check**: If "Skip Previously Forwarded" is enabled, checks the database for previously forwarded file numbers
+7. **Attachment Check**: If "Require Attachments" is enabled, skips emails without attachments
+
+### Forward Process
+
+When forwarding emails, the application:
+
+1. Creates a forward copy of the matching email
+2. Sets the recipient to your configured "Forward To" address
+3. **Replaces the subject line** with the extracted file number (if found) or keeps the original subject
+4. Sends the forwarded email
+5. Logs the file number to the database to prevent future duplicates
+6. Applies the configured delay between emails (minimum 3 seconds for date ranges > 8 days)
+
+### Configuration Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| **Forward To** | Email address where matching emails will be forwarded | Required |
+| **Subject Keyword** | Text to search for in email subjects (case-insensitive) | "BILLING INVOICE" |
+| **Start Date** | Beginning of the date range to search | Today |
+| **End Date** | End of the date range to search | Today |
+| **File Number Prefixes** | Comma-separated numeric prefixes (e.g., "759,123") to filter and extract file numbers | Empty (all emails) |
+| **Delay (Sec.)** | Seconds to wait between forwarding each email | 0 |
+| **Require Attachments** | Only forward emails that have attachments | Checked |
+| **Skip Previously Forwarded** | Skip emails with file numbers already in the tracking database | Checked |
+
+### File Number Extraction
+
+File numbers are extracted using the following priority:
+
+1. **From Attachments**: Scans attachment filenames for patterns matching your prefixes (e.g., "759-12345.pdf" extracts "759-12345")
+2. **From Subject**: If no attachment match, searches the email subject for matching patterns
+
+The extracted file number becomes the new subject line when forwarding, making it easy to identify and sort forwarded emails.
+
+### Rate Limiting
+
+To prevent overwhelming the mail server:
+
+- **Manual Delay**: Configure any delay in the Configuration dialog
+- **Automatic Delay**: A 3-second minimum delay is automatically applied when the date range exceeds 8 days
+- **Recommended**: Use 1-3 second delays for large batches of emails
+
 ## Database
 
 The application uses SQLite database (`minerdb.db`) with two tables:
