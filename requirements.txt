@@ -7,8 +7,7 @@ pywin32>=305
 # Timezone support
 pytz>=2023.3
 
-# Calendar date picker widget
-tkcalendar>=1.6.1
+# PyQt5 GUI framework
+PyQt5>=5.15.0
 
-# Note: tkinter is included with Python standard library
-# No separate installation needed for tkinter, sqlite3, threading, queue, or re
+# Note: sqlite3, threading, queue, and re are included with Python standard library

@@ -39,8 +39,8 @@ from functools import wraps
 # Determine the base path for resources (handles PyInstaller bundled exe)
 import sys
 if getattr(sys, 'frozen', False):
-    # Running as compiled exe
-    BASE_PATH = os.path.dirname(sys.executable)
+    # Running as compiled exe - use _MEIPASS for bundled data files
+    BASE_PATH = sys._MEIPASS
 else:
     # Running as script
     BASE_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -252,6 +252,12 @@ def init_db():
                                   recipient TEXT,
                                   forwarded_at TIMESTAMP,
                                   PRIMARY KEY (file_number, recipient))''')
+                # Check if Settings table exists (for app preferences like last used email)
+                c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Settings'")
+                if not c.fetchone():
+                    c.execute('''CREATE TABLE Settings
+                                 (key TEXT PRIMARY KEY,
+                                  value TEXT)''')
                 conn.commit()
         if new_db:
             gui_safe_log_message("SQLite database 'minerdb.db' created and initialized with Clients and ForwardedEmails tables.")
@@ -283,12 +289,47 @@ def load_email_addresses():
         gui_queue.put((lambda err=error_message: messagebox.showerror("Error", err), ()))
         return []
 
+def save_setting(key, value):
+    """Save a setting to the Settings table."""
+    try:
+        with db_lock:
+            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+                c = conn.cursor()
+                c.execute("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)",
+                         (key, value))
+                conn.commit()
+    except Exception as e:
+        gui_safe_log_message(f"Error saving setting '{key}': {str(e)}")
+
+def load_setting(key):
+    """Load a setting from the Settings table."""
+    try:
+        with db_lock:
+            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+                c = conn.cursor()
+                c.execute("SELECT value FROM Settings WHERE key = ?", (key,))
+                result = c.fetchone()
+                return result[0] if result else None
+    except Exception as e:
+        gui_safe_log_message(f"Error loading setting '{key}': {str(e)}")
+        return None
+
+def save_last_used_email(email):
+    """Save the last used email address to Settings table."""
+    save_setting('last_used_email', email)
+
+def load_last_used_email():
+    """Load the last used email address from Settings table."""
+    return load_setting('last_used_email')
+
 def load_config_for_email(event):
     """Load configuration settings for the selected email from the Clients table."""
     recipient = recipient_combobox.get().strip()
     if not recipient:
         gui_safe_log_message("No email selected in Outlook Miner. GUI fields unchanged.")
         return
+    # Save this as the last used email
+    save_last_used_email(recipient)
     try:
         with db_lock:
             with sqlite3.connect('minerdb.db', timeout=10) as conn:
@@ -534,89 +575,16 @@ def cancel_operation():
     root.config(cursor="")
     root.update_idletasks()
 
-def save_config():
-    """Save the current configuration, including the email address, to the Clients table."""
-    init_db()
-    recipient = recipient_combobox.get().strip()
-    subject_keyword = subject_keyword_entry.get().strip()
-    delay_seconds_str = delay_seconds_entry.get().strip()
-    start_date = start_date_entry.get().strip()
-    end_date = end_date_entry.get().strip()
-    if not recipient or not validate_email(recipient):
-        gui_queue.put((lambda: messagebox.showerror("Error", "Forward To email is required and must be a valid email address."), ()))
-        gui_safe_log_message("Error: Forward To email is required and must be a valid email address in Outlook Miner.")
-        return
-    if not subject_keyword:
-        gui_queue.put((lambda: messagebox.showerror("Error", "Subject Keyword is required."), ()))
-        gui_safe_log_message("Error: Subject Keyword is required in Outlook Miner.")
-        return
-    if not start_date or not end_date:
-        gui_queue.put((lambda: messagebox.showerror("Error", "Both Start Date and End Date are required."), ()))
-        gui_safe_log_message("Error: Both Start Date and End Date are required in Outlook Miner.")
-        return
-    try:
-        datetime.datetime.strptime(start_date, "%m/%d/%Y")
-        datetime.datetime.strptime(end_date, "%m/%d/%Y")
-    except ValueError:
-        gui_queue.put((lambda: messagebox.showerror("Error", "Dates must be in MM/DD/YYYY format."), ()))
-        gui_safe_log_message("Error: Dates must be in MM/DD/YYYY format in Outlook Miner.")
-        return
-    for prefix in file_number_prefix_entry.get().strip().split(','):
-        prefix = prefix.strip()
-        if prefix and not re.match(r'^\d+$', prefix):
-            gui_queue.put((lambda: messagebox.showerror("Error", f"File number prefix '{prefix}' must be numeric."), ()))
-            gui_safe_log_message(f"Error: File number prefix '{prefix}' must be numeric in Outlook Miner.")
-            return
-    delay_seconds = 0.0
-    if delay_seconds_str:
-        try:
-            delay_seconds = float(delay_seconds_str)
-            if delay_seconds < 0:
-                raise ValueError("Delay (Sec.) must be non-negative.")
-            gui_safe_log_message(f"Delay set to {delay_seconds} seconds")
-        except ValueError:
-            gui_queue.put((lambda: messagebox.showerror("Error", "Delay (Sec.) must be a non-negative number."), ()))
-            gui_safe_log_message("Error: Delay (Sec.) must be a non-negative number in Outlook Miner.")
-            return
-    file_number_prefix = file_number_prefix_entry.get().strip()
-    require_attachments = "1" if require_attachments_var.get() else "0"
-    skip_forwarded = "1" if skip_forwarded_var.get() else "0"
-    delay_seconds = str(delay_seconds)
-    created_at = datetime.datetime.now(pytz.timezone('US/Eastern')).strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
-                c = conn.cursor()
-                c.execute('''INSERT OR REPLACE INTO Clients
-                             (recipient, start_date, end_date, file_number_prefix, subject_keyword,
-                              require_attachments, skip_forwarded, delay_seconds, created_at, customer_settings,
-                              selected_mid_customer)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                          (recipient, start_date, end_date, file_number_prefix, subject_keyword,
-                           require_attachments, skip_forwarded, delay_seconds, created_at, "", ""))
-                conn.commit()
-        gui_safe_log_message(f"Configuration saved for '{recipient}' in Outlook Miner: Require Attachments={require_attachments}, Skip Forwarded={skip_forwarded}.")
-        gui_queue.put((lambda: messagebox.showinfo("Success", f"Configuration and email '{recipient}' saved successfully."), ()))
-        # Update combobox values
-        emails = load_email_addresses()
-        recipient_combobox['values'] = emails
-        if recipient not in emails:
-            recipient_combobox['values'] = emails + [recipient]
-            recipient_combobox.set(recipient)
-        # Load settings to ensure GUI reflects saved state
-        load_config_for_email(None)
-    except Exception as e:
-        error_message = f"Failed to save config in Outlook Miner: {str(e)}"
-        gui_safe_log_message(error_message)
-        gui_queue.put((lambda err=error_message: messagebox.showerror("Error", err), ()))
-
 def delete_config():
     """Delete the configuration for the selected email from the Clients table."""
     init_db()
     recipient = recipient_combobox.get().strip()
     if not recipient:
-        gui_queue.put((lambda: messagebox.showerror("Error", "No email selected to delete configuration."), ()))
+        messagebox.showerror("Error", "No email selected to delete.")
         gui_safe_log_message("Error: No email selected to delete configuration in Outlook Miner.")
+        return
+    # Confirm deletion
+    if not messagebox.askyesno("Confirm Delete", f"Delete configuration for '{recipient}'?"):
         return
     try:
         with db_lock:
@@ -646,6 +614,71 @@ def delete_config():
         error_message = f"Failed to delete config for '{recipient}' in Outlook Miner: {str(e)}"
         gui_safe_log_message(error_message)
         gui_queue.put((lambda err=error_message: messagebox.showerror("Error", err), ()))
+
+def show_configuration_dialog():
+    """Show configuration dialog for advanced settings."""
+    config_window = Toplevel(root)
+    config_window.title("Configuration")
+    config_window.geometry("400x250")
+    config_window.configure(bg="#F5F5F5")
+    config_window.transient(root)
+    config_window.grab_set()
+    try:
+        icon_img = tk.PhotoImage(file=ICON_PNG_PATH)
+        config_window.wm_iconphoto(True, icon_img)
+    except tk.TclError:
+        pass
+
+    # File Number Prefixes
+    tk.Label(config_window, text="File Number Prefixes (e.g., 759,123):", font=("Arial", 10), bg="#F5F5F5").grid(row=0, column=0, padx=10, pady=10, sticky="e")
+    prefix_entry = tk.Entry(config_window, width=30, font=("Arial", 10))
+    prefix_entry.grid(row=0, column=1, padx=10, pady=10)
+    prefix_entry.insert(0, file_number_prefix_entry.get())
+
+    # Delay
+    tk.Label(config_window, text="Delay (Sec.):", font=("Arial", 10), bg="#F5F5F5").grid(row=1, column=0, padx=10, pady=10, sticky="e")
+    delay_entry = tk.Entry(config_window, width=30, font=("Arial", 10))
+    delay_entry.grid(row=1, column=1, padx=10, pady=10)
+    delay_entry.insert(0, delay_seconds_entry.get())
+
+    # Require Attachments
+    tk.Label(config_window, text="Require Attachments:", font=("Arial", 10), bg="#F5F5F5").grid(row=2, column=0, padx=10, pady=10, sticky="e")
+    require_attach_var = tk.BooleanVar(value=require_attachments_var.get())
+    tk.Checkbutton(config_window, variable=require_attach_var, bg="#F5F5F5").grid(row=2, column=1, padx=10, pady=10, sticky="w")
+
+    # Skip Previously Forwarded
+    tk.Label(config_window, text="Skip Previously Forwarded:", font=("Arial", 10), bg="#F5F5F5").grid(row=3, column=0, padx=10, pady=10, sticky="e")
+    skip_fwd_var = tk.BooleanVar(value=skip_forwarded_var.get())
+    tk.Checkbutton(config_window, variable=skip_fwd_var, bg="#F5F5F5").grid(row=3, column=1, padx=10, pady=10, sticky="w")
+
+    def save_config_dialog():
+        file_number_prefix_entry.delete(0, tk.END)
+        file_number_prefix_entry.insert(0, prefix_entry.get())
+        delay_seconds_entry.delete(0, tk.END)
+        delay_seconds_entry.insert(0, delay_entry.get())
+        require_attachments_var.set(require_attach_var.get())
+        skip_forwarded_var.set(skip_fwd_var.get())
+        config_window.destroy()
+
+    # Buttons
+    button_frame = tk.Frame(config_window, bg="#F5F5F5")
+    button_frame.grid(row=4, column=0, columnspan=2, pady=20)
+    ttk.Button(button_frame, text="Save", command=save_config_dialog).pack(side="left", padx=10)
+    ttk.Button(button_frame, text="Cancel", command=config_window.destroy).pack(side="left", padx=10)
+
+def show_main_menu():
+    """Show hamburger menu with app options."""
+    menu = tk.Menu(root, tearoff=0)
+    menu.add_command(label="Configuration...", command=show_configuration_dialog)
+    menu.add_separator()
+    recipient = recipient_combobox.get().strip()
+    if recipient:
+        menu.add_command(label=f"Delete '{recipient}'", command=delete_config)
+    else:
+        menu.add_command(label="Delete Email Config", state='disabled')
+    # Position menu below the hamburger button
+    menu.tk_popup(main_menu_button.winfo_rootx(),
+                  main_menu_button.winfo_rooty() + main_menu_button.winfo_height())
 
 def search_subjects_thread(config):
     """Search emails for the given configuration in a separate thread."""
@@ -852,9 +885,10 @@ def search_subjects():
             subjects_window = Toplevel(root)
             subjects_window.title("Outlook Miner - Matching Email Subjects")
             try:
-                subjects_window.iconbitmap(ICON_PATH)
+                icon_img = tk.PhotoImage(file=ICON_PNG_PATH)
+                subjects_window.wm_iconphoto(True, icon_img)
             except tk.TclError as e:
-                gui_safe_log_message(f"Failed to load icon '{ICON_PATH}' for subjects window in Outlook Miner: {str(e)}. Using default icon.")
+                gui_safe_log_message(f"Failed to load icon for subjects window in Outlook Miner: {str(e)}. Using default icon.")
             subjects_window.geometry("600x400")
             subjects_window.configure(bg="#F5F5F5")
             subjects_text = ScrolledText(subjects_window, width=80, height=20, state='normal', bg="#FFFFFF", fg="#000000", font=("Arial", 10), highlightbackground="#E0E0E0", highlightthickness=1)
@@ -879,9 +913,10 @@ def show_warning_message():
     warning_window = Toplevel(root)
     warning_window.title("Warning")
     try:
-        warning_window.iconbitmap(ICON_PATH)
+        icon_img = tk.PhotoImage(file=ICON_PNG_PATH)
+        warning_window.wm_iconphoto(True, icon_img)
     except tk.TclError as e:
-        gui_safe_log_message(f"Failed to load icon '{ICON_PATH}' for warning window in Outlook Miner: {str(e)}. Using default icon.")
+        gui_safe_log_message(f"Failed to load icon for warning window in Outlook Miner: {str(e)}. Using default icon.")
     warning_window.geometry("400x100")
     warning_window.configure(bg="#F5F5F5")
     tk.Label(warning_window, text="Warning: A date range exceeding 8 days will add a 3 second delay between forwarded emails.", 
@@ -1113,7 +1148,79 @@ def scan_and_forward_thread(config):
         pythoncom.CoUninitialize()
 
 def scan_and_forward():
-    """Start the forward operation in a separate thread."""
+    """Start the forward operation in a separate thread, saving config automatically."""
+    # Validate inputs before starting
+    recipient = recipient_combobox.get().strip()
+    subject_keyword = subject_keyword_entry.get().strip()
+    delay_seconds_str = delay_seconds_entry.get().strip()
+    start_date = start_date_entry.get().strip()
+    end_date = end_date_entry.get().strip()
+
+    if not recipient or not validate_email(recipient):
+        messagebox.showerror("Error", "Forward To email is required and must be a valid email address.")
+        gui_safe_log_message("Error: Forward To email is required and must be a valid email address in Outlook Miner.")
+        return
+    if not subject_keyword:
+        messagebox.showerror("Error", "Subject Keyword is required.")
+        gui_safe_log_message("Error: Subject Keyword is required in Outlook Miner.")
+        return
+    if not start_date or not end_date:
+        messagebox.showerror("Error", "Both Start Date and End Date are required.")
+        gui_safe_log_message("Error: Both Start Date and End Date are required in Outlook Miner.")
+        return
+    try:
+        datetime.datetime.strptime(start_date, "%m/%d/%Y")
+        datetime.datetime.strptime(end_date, "%m/%d/%Y")
+    except ValueError:
+        messagebox.showerror("Error", "Dates must be in MM/DD/YYYY format.")
+        gui_safe_log_message("Error: Dates must be in MM/DD/YYYY format in Outlook Miner.")
+        return
+    for prefix in file_number_prefix_entry.get().strip().split(','):
+        prefix = prefix.strip()
+        if prefix and not re.match(r'^\d+$', prefix):
+            messagebox.showerror("Error", f"File number prefix '{prefix}' must be numeric.")
+            gui_safe_log_message(f"Error: File number prefix '{prefix}' must be numeric in Outlook Miner.")
+            return
+    delay_seconds_val = 0.0
+    if delay_seconds_str:
+        try:
+            delay_seconds_val = float(delay_seconds_str)
+            if delay_seconds_val < 0:
+                raise ValueError("Delay (Sec.) must be non-negative.")
+        except ValueError:
+            messagebox.showerror("Error", "Delay (Sec.) must be a non-negative number.")
+            gui_safe_log_message("Error: Delay (Sec.) must be a non-negative number in Outlook Miner.")
+            return
+
+    # Save configuration to database
+    file_number_prefix = file_number_prefix_entry.get().strip()
+    require_attachments_db = "1" if require_attachments_var.get() else "0"
+    skip_forwarded_db = "1" if skip_forwarded_var.get() else "0"
+    created_at = datetime.datetime.now(pytz.timezone('US/Eastern')).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with db_lock:
+            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+                c = conn.cursor()
+                c.execute('''INSERT OR REPLACE INTO Clients
+                             (recipient, start_date, end_date, file_number_prefix, subject_keyword,
+                              require_attachments, skip_forwarded, delay_seconds, created_at, customer_settings,
+                              selected_mid_customer)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                          (recipient, start_date, end_date, file_number_prefix, subject_keyword,
+                           require_attachments_db, skip_forwarded_db, str(delay_seconds_val), created_at, "", ""))
+                conn.commit()
+        gui_safe_log_message(f"Configuration saved for '{recipient}'")
+        # Update combobox values
+        emails = load_email_addresses()
+        recipient_combobox['values'] = emails
+        # Save last used settings
+        save_last_used_email(recipient)
+        save_setting('last_start_date', start_date)
+        save_setting('last_end_date', end_date)
+    except Exception as e:
+        error_message = f"Failed to save config in Outlook Miner: {str(e)}"
+        gui_safe_log_message(error_message)
+
     gui_queue.put((lambda: cancel_button.config(state='normal'), ()))
     gui_queue.put((lambda: root.config(cursor="wait"), ()))
     root.update_idletasks()
@@ -1121,14 +1228,14 @@ def scan_and_forward():
         global cancel_scan
         cancel_scan = False
         config = {
-            'recipient': recipient_combobox.get().strip(),
-            'start_date': start_date_entry.get(),
-            'end_date': end_date_entry.get(),
-            'file_number_prefix': file_number_prefix_entry.get().strip(),
-            'subject_keyword': subject_keyword_entry.get().strip(),
+            'recipient': recipient,
+            'start_date': start_date,
+            'end_date': end_date,
+            'file_number_prefix': file_number_prefix,
+            'subject_keyword': subject_keyword,
             'require_attachments': require_attachments_var.get(),
             'skip_forwarded': skip_forwarded_var.get(),
-            'delay_seconds': delay_seconds_entry.get().strip()
+            'delay_seconds': delay_seconds_str
         }
         scanned, processed = scan_and_forward_thread(config)
         gui_queue.put((lambda: messagebox.showinfo("Success", f"Scanned {scanned} emails, forwarded {processed} emails from Sent Items."), ()))
@@ -1149,15 +1256,17 @@ def initialize_log_frame(event):
 
 def initialize_buttons():
     """Initialize the button frame after startup."""
-    global button_frame, cancel_button
+    global button_frame, cancel_button, main_menu_button
     button_frame = ttk.Frame(search_frame, style='Clam.TFrame')
-    button_frame.grid(row=9, column=0, columnspan=2, pady=10, sticky="ew")
-    ttk.Button(button_frame, text="Save Config", command=save_config).pack(side="left", padx=5)
-    ttk.Button(button_frame, text="Delete Config", command=delete_config).pack(side="left", padx=5)
+    button_frame.grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
     ttk.Button(button_frame, text="Preview", command=search_subjects).pack(side="left", padx=5)
     ttk.Button(button_frame, text="Scan and Forward", command=scan_and_forward).pack(side="left", padx=5)
     cancel_button = ttk.Button(button_frame, text="Cancel", command=cancel_operation, state='disabled')
     cancel_button.pack(side="left", padx=5)
+    # Add hamburger menu button to top right of main window
+    main_menu_button = tk.Button(root, text="☰", font=("Arial", 12), width=3, command=show_main_menu,
+                                  bg="#E0E0E0", relief="flat", cursor="hand2")
+    main_menu_button.place(relx=1.0, x=-10, y=5, anchor="ne")
     status_label.destroy()
     root.after(200, process_gui_queue)
     root.update_idletasks()
@@ -1171,71 +1280,237 @@ def initialize_app():
         gui_safe_log_message(error_message)
         gui_queue.put((lambda err=error_message: messagebox.showerror("Error", err), ()))
 
+# ============================================================================
+# COLOR SCHEME AND STYLING CONSTANTS
+# ============================================================================
+COLORS = {
+    'primary': '#2563EB',           # Primary blue (buttons, accents)
+    'primary_hover': '#1D4ED8',     # Darker blue for hover
+    'primary_light': '#3B82F6',     # Lighter blue for highlights
+    'header_bg': '#1E3A5F',         # Dark blue for header
+    'header_text': '#FFFFFF',       # White text on header
+    'bg': '#F8FAFC',                # Light gray background
+    'frame_bg': '#FFFFFF',          # White frame background
+    'border': '#E2E8F0',            # Light border color
+    'text': '#1E293B',              # Dark text
+    'text_secondary': '#64748B',    # Secondary gray text
+    'input_bg': '#FFFFFF',          # White input background
+    'input_border': '#CBD5E1',      # Input border
+    'success': '#10B981',           # Green for success
+    'warning': '#F59E0B',           # Orange for warning
+}
+
+FONTS = {
+    'brand': ('Segoe UI', 16, 'bold'),
+    'brand_accent': ('Segoe UI', 16),
+    'heading': ('Segoe UI', 11, 'bold'),
+    'label': ('Segoe UI', 10),
+    'input': ('Segoe UI', 10),
+    'button': ('Segoe UI', 10),
+    'small': ('Segoe UI', 9),
+}
+
 # Create main GUI
 root = tk.Tk()
 root.title("Outlook Miner")
-root.configure(bg="#F5F5F5")
+root.configure(bg=COLORS['bg'])
+root.minsize(600, 550)
 try:
-    root.iconbitmap(ICON_PATH)
+    # Use PhotoImage with PNG for better quality rendering in title bar
+    icon_photo = tk.PhotoImage(file=ICON_PNG_PATH)
+    root.wm_iconphoto(True, icon_photo)
 except tk.TclError as e:
-    gui_safe_log_message(f"Failed to load icon '{ICON_PATH}' for main window in Outlook Miner: {str(e)}. Using default icon.")
-status_label = tk.Label(root, text="Loading...", font=("Arial", 12), bg="#F5F5F5", fg="#000000")
-status_label.pack(pady=20)
+    # Fallback to ICO if PNG fails
+    try:
+        root.iconbitmap(ICON_PATH)
+    except tk.TclError:
+        gui_safe_log_message(f"Failed to load icon for main window in Outlook Miner: {str(e)}. Using default icon.")
 
-# Apply clam theme
+# Apply clam theme and configure styles
 style = ttk.Style()
 style.theme_use('clam')
-style.configure("Clam.TFrame", background="#E0E0E0")
 
-notebook = ttk.Notebook(root, style='Clam.TFrame')
-notebook.pack(pady=10, expand=True)
+# Configure custom styles
+style.configure("App.TFrame", background=COLORS['bg'])
+style.configure("Card.TFrame", background=COLORS['frame_bg'])
+style.configure("Header.TFrame", background=COLORS['header_bg'])
+
+# Tab/Notebook styling
+style.configure("TNotebook", background=COLORS['bg'], borderwidth=0)
+style.configure("TNotebook.Tab",
+    background=COLORS['border'],
+    foreground=COLORS['text'],
+    padding=[20, 8],
+    font=FONTS['label'])
+style.map("TNotebook.Tab",
+    background=[("selected", COLORS['primary']), ("active", COLORS['primary_light'])],
+    foreground=[("selected", "#FFFFFF"), ("active", "#FFFFFF")])
+
+# Button styling
+style.configure("Primary.TButton",
+    background=COLORS['primary'],
+    foreground="#FFFFFF",
+    padding=[16, 8],
+    font=FONTS['button'])
+style.map("Primary.TButton",
+    background=[("active", COLORS['primary_hover']), ("pressed", COLORS['primary_hover'])])
+
+style.configure("Secondary.TButton",
+    background=COLORS['border'],
+    foreground=COLORS['text'],
+    padding=[16, 8],
+    font=FONTS['button'])
+style.map("Secondary.TButton",
+    background=[("active", "#D1D5DB"), ("pressed", "#D1D5DB")])
+
+# Combobox styling
+style.configure("TCombobox",
+    fieldbackground=COLORS['input_bg'],
+    background=COLORS['input_bg'],
+    foreground=COLORS['text'],
+    padding=5,
+    font=FONTS['input'])
+
+# LabelFrame styling
+style.configure("Card.TLabelframe",
+    background=COLORS['frame_bg'],
+    bordercolor=COLORS['border'],
+    relief="solid",
+    borderwidth=1)
+style.configure("Card.TLabelframe.Label",
+    background=COLORS['frame_bg'],
+    foreground=COLORS['primary'],
+    font=FONTS['heading'])
+
+# ============================================================================
+# HEADER / BRANDING
+# ============================================================================
+header_frame = tk.Frame(root, bg=COLORS['header_bg'], height=60)
+header_frame.pack(fill='x', side='top')
+header_frame.pack_propagate(False)
+
+# App title with accent
+title_frame = tk.Frame(header_frame, bg=COLORS['header_bg'])
+title_frame.pack(side='left', padx=20, pady=12)
+tk.Label(title_frame, text="Outlook", font=FONTS['brand'],
+         bg=COLORS['header_bg'], fg=COLORS['header_text']).pack(side='left')
+tk.Label(title_frame, text="Miner", font=FONTS['brand_accent'],
+         bg=COLORS['header_bg'], fg=COLORS['primary_light']).pack(side='left')
+
+# Loading status (temporary)
+status_label = tk.Label(root, text="Loading...", font=FONTS['label'], bg=COLORS['bg'], fg=COLORS['text'])
+status_label.pack(pady=20)
+
+# Main content area
+main_content = tk.Frame(root, bg=COLORS['bg'])
+main_content.pack(fill='both', expand=True, padx=15, pady=10)
+
+notebook = ttk.Notebook(main_content)
+notebook.pack(pady=0, fill='both', expand=True)
 notebook.bind("<<NotebookTabChanged>>", initialize_log_frame)
-search_frame = ttk.Frame(notebook, style='Clam.TFrame')
-notebook.add(search_frame, text="Search")
+search_frame = ttk.Frame(notebook, style='Card.TFrame')
+notebook.add(search_frame, text="  Search  ")
 
 current_year = datetime.datetime.now().year
 current_month = datetime.datetime.now().month
 
-tk.Label(search_frame, text="Forward To Email Address:", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=0, column=0, padx=10, pady=10, sticky="e")
-recipient_combobox = ttk.Combobox(search_frame, width=47, font=("Arial", 10))
-recipient_combobox.grid(row=0, column=1, padx=10, pady=10)
+# Configure grid weights for proper expansion
+search_frame.columnconfigure(0, weight=0)
+search_frame.columnconfigure(1, weight=1)
+
+# ============================================================================
+# EMAIL SETTINGS SECTION
+# ============================================================================
+email_frame = ttk.LabelFrame(search_frame, text="Email Settings", style="Card.TLabelframe", padding=(15, 10))
+email_frame.grid(row=0, column=0, columnspan=2, padx=15, pady=(15, 8), sticky="ew")
+email_frame.columnconfigure(1, weight=1)
+
+tk.Label(email_frame, text="Forward To:", font=FONTS['label'],
+         bg=COLORS['frame_bg'], fg=COLORS['text']).grid(row=0, column=0, padx=(0, 10), pady=8, sticky="e")
+recipient_combobox = ttk.Combobox(email_frame, width=45, font=FONTS['input'])
+recipient_combobox.grid(row=0, column=1, padx=0, pady=8, sticky="ew")
 init_db()  # Initialize database before loading email addresses
 recipient_combobox['values'] = load_email_addresses()
 recipient_combobox.bind("<<ComboboxSelected>>", load_config_for_email)
+# Restore last used email address
+last_email = load_last_used_email()
+if last_email and last_email in recipient_combobox['values']:
+    recipient_combobox.set(last_email)
+    # Trigger config load for the restored email (simulate selection event)
+    root.after(100, lambda: load_config_for_email(None))
 
-tk.Label(search_frame, text="Subject Keyword (e.g., BILLING INVOICE):", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=1, column=0, padx=10, pady=10, sticky="e")
-subject_keyword_entry = tk.Entry(search_frame, width=50, font=("Arial", 10), bg="#FFFFFF", fg="#000000", highlightbackground="#E0E0E0", highlightthickness=1)
-subject_keyword_entry.grid(row=1, column=1, padx=10, pady=10)
+tk.Label(email_frame, text="Subject Keyword:", font=FONTS['label'],
+         bg=COLORS['frame_bg'], fg=COLORS['text']).grid(row=1, column=0, padx=(0, 10), pady=8, sticky="e")
+subject_keyword_entry = tk.Entry(email_frame, width=48, font=FONTS['input'],
+                                  bg=COLORS['input_bg'], fg=COLORS['text'],
+                                  highlightbackground=COLORS['input_border'], highlightthickness=1,
+                                  relief='solid', bd=1)
+subject_keyword_entry.grid(row=1, column=1, padx=0, pady=8, sticky="ew")
 subject_keyword_entry.insert(0, "BILLING INVOICE")
 
-tk.Label(search_frame, text="Start Date:", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=2, column=0, padx=10, pady=10, sticky="e")
-start_date_entry = DateEntry(search_frame, width=47, date_pattern='mm/dd/yyyy', year=current_year, month=current_month, selectmode='day', font=("Arial", 10), background="#4A90E2", foreground="#FFFFFF", normalbackground="#FFFFFF", normalforeground="#000000")
-start_date_entry.grid(row=2, column=1, padx=10, pady=10)
+# ============================================================================
+# DATE RANGE SECTION
+# ============================================================================
+date_frame = ttk.LabelFrame(search_frame, text="Date Range", style="Card.TLabelframe", padding=(15, 10))
+date_frame.grid(row=1, column=0, columnspan=2, padx=15, pady=8, sticky="ew")
+date_frame.columnconfigure(1, weight=1)
+date_frame.columnconfigure(3, weight=1)
 
-tk.Label(search_frame, text="End Date:", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=3, column=0, padx=10, pady=10, sticky="e")
-end_date_entry = DateEntry(search_frame, width=47, date_pattern='mm/dd/yyyy', year=current_year, month=current_month, selectmode='day', font=("Arial", 10), background="#4A90E2", foreground="#FFFFFF", normalbackground="#FFFFFF", normalforeground="#000000")
-end_date_entry.grid(row=3, column=1, padx=10, pady=10)
+tk.Label(date_frame, text="Start Date:", font=FONTS['label'],
+         bg=COLORS['frame_bg'], fg=COLORS['text']).grid(row=0, column=0, padx=(0, 10), pady=8, sticky="e")
+start_date_entry = DateEntry(date_frame, width=18, date_pattern='mm/dd/yyyy',
+                              year=current_year, month=current_month, selectmode='day',
+                              font=FONTS['input'], background=COLORS['primary'],
+                              foreground="#FFFFFF", normalbackground=COLORS['input_bg'],
+                              normalforeground=COLORS['text'])
+start_date_entry.grid(row=0, column=1, padx=(0, 20), pady=8, sticky="w")
 
-tk.Label(search_frame, text="File Number Prefixes (e.g., 759,123):", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=4, column=0, padx=10, pady=10, sticky="e")
-file_number_prefix_entry = tk.Entry(search_frame, width=50, font=("Arial", 10), bg="#FFFFFF", fg="#000000", highlightbackground="#E0E0E0", highlightthickness=1)
-file_number_prefix_entry.grid(row=4, column=1, padx=10, pady=10)
+tk.Label(date_frame, text="End Date:", font=FONTS['label'],
+         bg=COLORS['frame_bg'], fg=COLORS['text']).grid(row=0, column=2, padx=(0, 10), pady=8, sticky="e")
+end_date_entry = DateEntry(date_frame, width=18, date_pattern='mm/dd/yyyy',
+                            year=current_year, month=current_month, selectmode='day',
+                            font=FONTS['input'], background=COLORS['primary'],
+                            foreground="#FFFFFF", normalbackground=COLORS['input_bg'],
+                            normalforeground=COLORS['text'])
+end_date_entry.grid(row=0, column=3, padx=0, pady=8, sticky="w")
 
-tk.Label(search_frame, text="Delay (Sec.) (optional):", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=5, column=0, padx=10, pady=10, sticky="e")
-delay_seconds_entry = tk.Entry(search_frame, width=50, font=("Arial", 10), bg="#FFFFFF", fg="#000000", highlightbackground="#E0E0E0", highlightthickness=1)
-delay_seconds_entry.grid(row=5, column=1, padx=10, pady=10)
+# Restore last used dates (only if no email config will be loaded)
+if not last_email or last_email not in recipient_combobox['values']:
+    last_start = load_setting('last_start_date')
+    last_end = load_setting('last_end_date')
+    if last_start:
+        try:
+            start_date_entry.set_date(last_start)
+        except ValueError:
+            pass
+    if last_end:
+        try:
+            end_date_entry.set_date(last_end)
+        except ValueError:
+            pass
+
+# Hidden configuration variables (accessed via Configuration menu)
+file_number_prefix_entry = tk.Entry(search_frame)  # Hidden, stores value
+file_number_prefix_entry.insert(0, "")
+delay_seconds_entry = tk.Entry(search_frame)  # Hidden, stores value
 delay_seconds_entry.insert(0, "0")
-
-tk.Label(search_frame, text="Require Attachments:", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=6, column=0, padx=10, pady=10, sticky="e")
 require_attachments_var = tk.BooleanVar(value=True)
-tk.Checkbutton(search_frame, variable=require_attachments_var, bg="#F5F5F5", activebackground="#F5F5F5", selectcolor="#FFFFFF").grid(row=6, column=1, padx=10, pady=10, sticky="w")
-
-tk.Label(search_frame, text="Skip Previously Forwarded Emails:", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=7, column=0, padx=10, pady=10, sticky="e")
 skip_forwarded_var = tk.BooleanVar(value=True)
-tk.Checkbutton(search_frame, variable=skip_forwarded_var, bg="#F5F5F5", activebackground="#F5F5F5", selectcolor="#FFFFFF").grid(row=7, column=1, padx=10, pady=10, sticky="w")
 
-tk.Label(search_frame, text="Files Sent:", font=("Arial", 10), bg="#F5F5F5", fg="#000000").grid(row=8, column=0, padx=10, pady=10, sticky="e")
-subject_text = ScrolledText(search_frame, width=50, height=10, state='normal', bg="#FFFFFF", fg="#000000", font=("Arial", 10), highlightbackground="#E0E0E0", highlightthickness=1)
-subject_text.grid(row=8, column=1, padx=10, pady=10)
+# ============================================================================
+# RESULTS SECTION
+# ============================================================================
+results_frame = ttk.LabelFrame(search_frame, text="Files Sent", style="Card.TLabelframe", padding=(15, 10))
+results_frame.grid(row=2, column=0, columnspan=2, padx=15, pady=8, sticky="nsew")
+results_frame.columnconfigure(0, weight=1)
+results_frame.rowconfigure(0, weight=1)
+search_frame.rowconfigure(2, weight=1)
+
+subject_text = ScrolledText(results_frame, width=50, height=8, state='normal',
+                             bg=COLORS['input_bg'], fg=COLORS['text'],
+                             font=FONTS['input'], highlightbackground=COLORS['input_border'],
+                             highlightthickness=1, relief='solid', bd=1)
+subject_text.grid(row=0, column=0, sticky="nsew")
 
 root.after(100, initialize_buttons)
 initialize_app()

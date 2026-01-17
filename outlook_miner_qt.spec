@@ -1,12 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-
 a = Analysis(
-    ['outlook_miner.py'],
+    ['outlook_miner_qt.py'],
     pathex=[],
     binaries=[],
     datas=[('myicon.ico', '.'), ('myicon.png', '.')],
-    hiddenimports=['win32timezone', 'pywin32', 'tkcalendar', 'win32com.client'],
+    hiddenimports=['win32timezone', 'pywin32', 'win32com.client'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +21,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='outlook_miner',
+    name='OutlookMiner',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
