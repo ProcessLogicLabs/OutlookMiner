@@ -169,13 +169,26 @@ QLineEdit:focus, QComboBox:focus, QDateEdit:focus {{
 }}
 
 QComboBox::drop-down {{
-    border: none;
-    padding-right: 8px;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left: 1px solid {COLORS['input_border']};
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+    background-color: {COLORS['tab_inactive']};
 }}
 
 QComboBox::down-arrow {{
-    width: 12px;
-    height: 12px;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid {COLORS['text']};
+    margin-right: 5px;
+}}
+
+QComboBox::down-arrow:hover {{
+    border-top-color: {COLORS['primary']};
 }}
 
 /* Button styling */
