@@ -36,6 +36,18 @@ from functools import wraps
 # GLOBAL CONFIGURATION
 # ============================================================================
 
+# Determine the base path for resources (handles PyInstaller bundled exe)
+import sys
+if getattr(sys, 'frozen', False):
+    # Running as compiled exe
+    BASE_PATH = os.path.dirname(sys.executable)
+else:
+    # Running as script
+    BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+
+ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
+ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
+
 # Global flag to control operation cancellation
 cancel_scan = False
 
@@ -840,9 +852,9 @@ def search_subjects():
             subjects_window = Toplevel(root)
             subjects_window.title("Outlook Miner - Matching Email Subjects")
             try:
-                subjects_window.iconbitmap('myicon.ico')
+                subjects_window.iconbitmap(ICON_PATH)
             except tk.TclError as e:
-                gui_safe_log_message(f"Failed to load icon 'myicon.ico' for subjects window in Outlook Miner: {str(e)}. Using default icon.")
+                gui_safe_log_message(f"Failed to load icon '{ICON_PATH}' for subjects window in Outlook Miner: {str(e)}. Using default icon.")
             subjects_window.geometry("600x400")
             subjects_window.configure(bg="#F5F5F5")
             subjects_text = ScrolledText(subjects_window, width=80, height=20, state='normal', bg="#FFFFFF", fg="#000000", font=("Arial", 10), highlightbackground="#E0E0E0", highlightthickness=1)
@@ -867,9 +879,9 @@ def show_warning_message():
     warning_window = Toplevel(root)
     warning_window.title("Warning")
     try:
-        warning_window.iconbitmap('myicon.ico')
+        warning_window.iconbitmap(ICON_PATH)
     except tk.TclError as e:
-        gui_safe_log_message(f"Failed to load icon 'myicon.ico' for warning window in Outlook Miner: {str(e)}. Using default icon.")
+        gui_safe_log_message(f"Failed to load icon '{ICON_PATH}' for warning window in Outlook Miner: {str(e)}. Using default icon.")
     warning_window.geometry("400x100")
     warning_window.configure(bg="#F5F5F5")
     tk.Label(warning_window, text="Warning: A date range exceeding 8 days will add a 3 second delay between forwarded emails.", 
@@ -1164,9 +1176,9 @@ root = tk.Tk()
 root.title("Outlook Miner")
 root.configure(bg="#F5F5F5")
 try:
-    root.iconbitmap('myicon.ico')
+    root.iconbitmap(ICON_PATH)
 except tk.TclError as e:
-    gui_safe_log_message(f"Failed to load icon 'myicon.ico' for main window in Outlook Miner: {str(e)}. Using default icon.")
+    gui_safe_log_message(f"Failed to load icon '{ICON_PATH}' for main window in Outlook Miner: {str(e)}. Using default icon.")
 status_label = tk.Label(root, text="Loading...", font=("Arial", 12), bg="#F5F5F5", fg="#000000")
 status_label.pack(pady=20)
 
