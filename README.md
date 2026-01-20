@@ -1,4 +1,4 @@
-# Outlook Miner
+# DocuShuttle
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)
@@ -17,6 +17,7 @@ A powerful email forwarding automation tool for Microsoft Outlook that helps you
 - **Configuration Management**: Save and manage multiple recipient configurations
 - **Comprehensive Logging**: Detailed logging with timestamps for audit trails
 - **Rate Limiting**: Configurable delays between forwarded emails
+- **Animated Splash Screen**: Professional startup experience with vortex animation
 
 ## Requirements
 
@@ -28,17 +29,14 @@ A powerful email forwarding automation tool for Microsoft Outlook that helps you
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/royalpayne/OutlookMiner.git
-   cd OutlookMiner
+   git clone https://github.com/royalpayne/docushuttle.git
+   cd docushuttle
    ```
 
 2. **Install required dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
-
-3. **Optional: Place your custom icon:**
-   - Add a `myicon.ico` file to the project directory for custom branding
 
 ## Usage
 
@@ -47,13 +45,13 @@ A powerful email forwarding automation tool for Microsoft Outlook that helps you
 Run the application using Python:
 
 ```bash
-python outlook_miner.py
+python outlook_miner_qt.py
 ```
 
 Or use the compiled executable (if available):
 
 ```bash
-outlook_miner.exe
+DocuShuttle.exe
 ```
 
 ### Configuration Steps
@@ -77,7 +75,7 @@ outlook_miner.exe
    - **Delay (Sec.)**: Add delay between forwarded emails
 
 6. **Save Configuration**:
-   - Click "Save Config" to store your settings for future use
+   - Click the hamburger menu and select "Configuration" to store your settings
 
 ### Operations
 
@@ -166,11 +164,7 @@ Tracks forwarded emails to prevent duplicates:
 
 ## Logging
 
-The application maintains several log files:
-
-- **GUI Log Tab**: Real-time logging visible in the application
-- **outlook_miner_startup.log**: Startup messages before GUI initialization
-- **forwarded_emails.log**: Record of all forwarded emails with timestamps
+The application maintains logging visible in the Log tab with real-time updates during operations.
 
 All timestamps use US/Eastern timezone.
 
@@ -192,6 +186,7 @@ All timestamps use US/Eastern timezone.
 - Ensure Microsoft Outlook is installed and configured
 - Try closing and reopening Outlook
 - Check if Outlook is set as the default mail client
+- Verify Python and Outlook are both 32-bit or both 64-bit
 
 ### No Emails Found
 - Verify the subject keyword matches emails in Sent Items
@@ -209,7 +204,7 @@ All timestamps use US/Eastern timezone.
 To build a standalone executable using PyInstaller:
 
 ```bash
-pyinstaller outlook_miner.spec
+pyinstaller docushuttle.spec
 ```
 
 The executable will be created in the `dist` folder.
@@ -217,14 +212,17 @@ The executable will be created in the `dist` folder.
 ## Project Structure
 
 ```
-OutlookMiner/
-├── outlook_miner.py       # Main application file
-├── outlook_miner.spec     # PyInstaller specification
+docushuttle/
+├── outlook_miner_qt.py    # Main application file (PyQt5)
+├── docushuttle.spec       # PyInstaller specification
+├── DocuShuttle_Setup.iss  # Inno Setup installer script
+├── create_icon.py         # Icon generation script
 ├── myicon.ico             # Application icon
+├── myicon.png             # PNG version of icon
 ├── requirements.txt       # Python dependencies
-├── README.md             # This file
-├── minerdb.db            # SQLite database (created on first run)
-└── *.log                 # Log files (created during operation)
+├── README.md              # This file
+├── minerdb.db             # SQLite database (created on first run)
+└── dist/                  # Build output directory
 ```
 
 ## Contributing
@@ -272,12 +270,11 @@ SOFTWARE.
 ## Acknowledgments
 
 - Built with [pywin32](https://github.com/mhammond/pywin32) for Outlook integration
-- GUI built with [tkinter](https://docs.python.org/3/library/tkinter.html)
-- Date picker from [tkcalendar](https://github.com/j4321/tkcalendar)
+- GUI built with [PyQt5](https://www.riverbankcomputing.com/software/pyqt/)
 
 ## Support
 
-For issues, questions, or suggestions, please open an issue on the [GitHub repository](https://github.com/royalpayne/OutlookMiner/issues).
+For issues, questions, or suggestions, please open an issue on the [GitHub repository](https://github.com/royalpayne/docushuttle/issues).
 
 ---
 

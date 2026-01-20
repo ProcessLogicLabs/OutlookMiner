@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python outlook_miner_qt.py:*)",
+      "Bash(venvScriptsactivate)",
+      "Bash(c:\\\\Users\\\\payne\\\\outlookminer\\\\venv\\\\Scripts\\\\python.exe:*)"
+    ]
+  }
+}

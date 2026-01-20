@@ -1,5 +1,5 @@
 """
-Outlook Miner - Email Forwarding Automation Tool (PyQt5 Version)
+DocuShuttle - Email Forwarding Automation Tool (PyQt5 Version)
 
 This application automates the process of forwarding emails from Outlook's Sent Items
 folder based on configurable filters such as date range, subject keywords, and file numbers.
@@ -31,8 +31,11 @@ from PyQt5.QtWidgets import (
     QCheckBox, QGroupBox, QTabWidget, QFrame, QMessageBox, QDialog,
     QFormLayout, QSpacerItem, QSizePolicy, QMenu, QAction, QToolButton
 )
-from PyQt5.QtCore import Qt, QDate, QTimer, pyqtSignal, QObject, QThread
-from PyQt5.QtGui import QFont, QIcon, QPalette, QColor, QPixmap
+from PyQt5.QtCore import Qt, QDate, QTimer, pyqtSignal, QObject, QThread, QPropertyAnimation, QPointF, QRectF, QEasingCurve
+from PyQt5.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QPainter, QPen, QBrush, QPainterPath, QRadialGradient
+from PyQt5.QtWidgets import QSplashScreen, QProgressBar
+import math
+import random
 
 # Windows COM integration
 import win32com.client
@@ -61,24 +64,25 @@ DEFAULT_TIMEZONE = 'US/Eastern'
 db_lock = threading.Lock()
 
 # ============================================================================
-# STYLE CONSTANTS - TariffMill Muted Cyan Theme
+# STYLE CONSTANTS - OCRMill Light Theme
 # ============================================================================
 COLORS = {
-    'primary': '#4A9BA8',           # Muted cyan/teal (buttons, accents)
-    'primary_hover': '#3D8490',     # Darker cyan for hover
-    'primary_light': '#5FB3C1',     # Lighter cyan for highlights
-    'header_bg': '#2C3E50',         # Dark slate header (matches TariffMill)
-    'header_text': '#FFFFFF',       # White text on header
-    'bg': '#F5F7FA',                # Light gray-blue background
+    'primary': '#5D9A96',           # Muted teal accent
+    'primary_hover': '#4A7B78',     # Darker muted teal for hover
+    'primary_light': '#7FB3AF',     # Lighter muted teal for highlights
+    'header_bg': '#FFFFFF',         # White header (OCRMill style)
+    'header_text': '#5D9A96',       # Muted teal text on header
+    'bg': '#F0F0F0',                # Light gray background
     'frame_bg': '#FFFFFF',          # White frame background
-    'border': '#D4DDE6',            # Soft gray-blue border
-    'text': '#2C3E50',              # Dark slate text
-    'text_secondary': '#7F8C9A',    # Muted gray text
+    'border': '#CCCCCC',            # Light gray border
+    'text': '#333333',              # Dark gray text
+    'text_secondary': '#666666',    # Medium gray text
     'input_bg': '#FFFFFF',          # White input background
-    'input_border': '#B8C5D1',      # Gray-blue input border
+    'input_border': '#CCCCCC',      # Gray input border
     'success': '#5DAE8B',           # Muted green for success
     'warning': '#D4A056',           # Muted orange for warning
-    'tab_inactive': '#E8EDF2',      # Light gray for inactive tabs
+    'tab_inactive': '#F5F5F5',      # Very light gray for inactive tabs
+    'status_bar_bg': '#F0F0F0',     # Status bar background
 }
 
 STYLESHEET = f"""
@@ -94,45 +98,52 @@ QWidget {{
 /* Header styling */
 #headerFrame {{
     background-color: {COLORS['header_bg']};
+    border-bottom: 1px solid {COLORS['border']};
     min-height: 60px;
     max-height: 60px;
 }}
 
 #brandLabel {{
     color: {COLORS['header_text']};
-    font-size: 16pt;
+    font-size: 18pt;
     font-weight: bold;
 }}
 
 #brandAccent {{
-    color: {COLORS['primary_light']};
-    font-size: 16pt;
+    color: #9370A2;
+    font-size: 18pt;
+    font-weight: bold;
 }}
 
 /* Tab styling */
 QTabWidget::pane {{
     border: 1px solid {COLORS['border']};
     background-color: {COLORS['frame_bg']};
-    border-radius: 4px;
+    border-radius: 0px;
+    border-top: none;
 }}
 
 QTabBar::tab {{
     background-color: {COLORS['tab_inactive']};
     color: {COLORS['text']};
-    padding: 10px 24px;
-    margin-right: 2px;
-    border-top-left-radius: 4px;
-    border-top-right-radius: 4px;
+    padding: 8px 20px;
+    margin-right: 1px;
+    border: 1px solid {COLORS['border']};
+    border-bottom: none;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
 }}
 
 QTabBar::tab:selected {{
-    background-color: {COLORS['primary']};
-    color: white;
+    background-color: {COLORS['frame_bg']};
+    color: {COLORS['primary']};
+    font-weight: bold;
+    border-bottom: 2px solid {COLORS['primary']};
 }}
 
 QTabBar::tab:hover:!selected {{
-    background-color: {COLORS['primary_light']};
-    color: white;
+    background-color: #E8E8E8;
+    color: {COLORS['text']};
 }}
 
 /* GroupBox styling */
@@ -191,41 +202,48 @@ QComboBox::down-arrow:hover {{
     border-top-color: {COLORS['primary']};
 }}
 
-/* Button styling */
+/* Button styling - OCRMill style */
 QPushButton {{
-    padding: 10px 20px;
-    border-radius: 4px;
-    font-weight: 500;
-    min-width: 100px;
+    padding: 6px 16px;
+    border-radius: 3px;
+    font-weight: normal;
+    min-width: 90px;
+    border: 1px solid {COLORS['border']};
+    background-color: {COLORS['frame_bg']};
+    color: {COLORS['text']};
+}}
+
+QPushButton:hover {{
+    background-color: #E8E8E8;
 }}
 
 QPushButton#primaryButton {{
-    background-color: {COLORS['primary']};
-    color: white;
-    border: none;
+    background-color: {COLORS['frame_bg']};
+    color: {COLORS['text']};
+    border: 1px solid {COLORS['border']};
 }}
 
 QPushButton#primaryButton:hover {{
-    background-color: {COLORS['primary_hover']};
+    background-color: #E8E8E8;
 }}
 
 QPushButton#primaryButton:pressed {{
-    background-color: {COLORS['primary_hover']};
+    background-color: #D8D8D8;
 }}
 
 QPushButton#primaryButton:disabled {{
-    background-color: {COLORS['border']};
+    background-color: {COLORS['tab_inactive']};
     color: {COLORS['text_secondary']};
 }}
 
 QPushButton#secondaryButton {{
-    background-color: {COLORS['border']};
+    background-color: {COLORS['frame_bg']};
     color: {COLORS['text']};
-    border: 1px solid {COLORS['input_border']};
+    border: 1px solid {COLORS['border']};
 }}
 
 QPushButton#secondaryButton:hover {{
-    background-color: #D1D5DB;
+    background-color: #E8E8E8;
 }}
 
 /* TextEdit styling */
@@ -240,15 +258,15 @@ QTextEdit {{
 /* Menu button */
 QToolButton#menuButton {{
     background-color: transparent;
-    border: none;
-    color: {COLORS['header_text']};
-    font-size: 18pt;
-    padding: 8px;
+    border: 1px solid {COLORS['border']};
+    border-radius: 3px;
+    color: {COLORS['text']};
+    font-size: 14pt;
+    padding: 6px;
 }}
 
 QToolButton#menuButton:hover {{
-    background-color: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+    background-color: #E8E8E8;
 }}
 
 /* Label styling */
@@ -833,7 +851,7 @@ class ConfigDialog(QDialog):
 # ============================================================================
 # MAIN WINDOW
 # ============================================================================
-class OutlookMinerWindow(QMainWindow):
+class DocuShuttleWindow(QMainWindow):
     """Main application window."""
 
     def __init__(self):
@@ -849,7 +867,7 @@ class OutlookMinerWindow(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle("Outlook Miner")
+        self.setWindowTitle("DocuShuttle")
         self.setMinimumSize(650, 600)
         self.resize(700, 650)
 
@@ -875,15 +893,30 @@ class OutlookMinerWindow(QMainWindow):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(20, 0, 20, 0)
 
-        # Brand
+        # Brand with logo icon
         brand_layout = QHBoxLayout()
-        brand_layout.setSpacing(0)
-        brand_label = QLabel("Outlook")
+        brand_layout.setSpacing(8)
+
+        # Add logo icon (load from myicon.png)
+        logo_label = QLabel()
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'myicon.png')
+        if os.path.exists(icon_path):
+            logo_pixmap = QPixmap(icon_path).scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(logo_pixmap)
+        logo_label.setFixedSize(40, 40)
+        brand_layout.addWidget(logo_label)
+
+        # Brand text
+        brand_text_layout = QHBoxLayout()
+        brand_text_layout.setSpacing(0)
+        brand_label = QLabel("Docu")
         brand_label.setObjectName("brandLabel")
-        brand_layout.addWidget(brand_label)
-        accent_label = QLabel("Miner")
+        brand_text_layout.addWidget(brand_label)
+        accent_label = QLabel("Shuttle")
         accent_label.setObjectName("brandAccent")
-        brand_layout.addWidget(accent_label)
+        brand_text_layout.addWidget(accent_label)
+        brand_layout.addLayout(brand_text_layout)
+
         header_layout.addLayout(brand_layout)
 
         header_layout.addStretch()
@@ -895,14 +928,14 @@ class OutlookMinerWindow(QMainWindow):
         self.config_menu_btn.setStyleSheet(f"""
             QToolButton {{
                 background-color: transparent;
-                border: 1px solid rgba(255, 255, 255, 0.3);
+                border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 font-size: 16pt;
-                color: {COLORS['header_text']};
+                color: {COLORS['text']};
             }}
             QToolButton:hover {{
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.5);
+                background-color: #E8E8E8;
+                border: 1px solid {COLORS['border']};
             }}
         """)
         self.config_menu_btn.setPopupMode(QToolButton.InstantPopup)
@@ -1303,6 +1336,274 @@ class OutlookMinerWindow(QMainWindow):
 
 
 # ============================================================================
+# ANIMATED SPLASH SCREEN
+# ============================================================================
+class Envelope:
+    """Represents an envelope that spirals into the vortex."""
+    def __init__(self, x, y, size, angle, distance):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.angle = angle  # Angle around the vortex center
+        self.distance = distance  # Distance from center
+        self.rotation = random.uniform(0, 360)  # Envelope rotation
+        self.speed = random.uniform(0.8, 1.2)  # Speed multiplier
+        self.opacity = 1.0
+
+
+class AnimatedSplashScreen(QSplashScreen):
+    """Animated splash screen with envelopes spiraling into a vortex."""
+
+    def __init__(self):
+        # Create a pixmap for the splash
+        self.splash_width = 500
+        self.splash_height = 350
+        pixmap = QPixmap(self.splash_width, self.splash_height)
+        pixmap.fill(Qt.transparent)
+        super().__init__(pixmap)
+
+        # Set window flags for transparency
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.SplashScreen)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        # Vortex center
+        self.center_x = self.splash_width // 2
+        self.center_y = self.splash_height // 2 - 20
+
+        # Create envelopes at various positions around the vortex
+        self.envelopes = []
+        self.create_envelopes()
+
+        # Animation properties
+        self.vortex_rotation = 0
+        self.progress = 0
+
+        # Timer for animation
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(30)  # ~33 FPS
+
+        # Progress timer
+        self.progress_timer = QTimer(self)
+        self.progress_timer.timeout.connect(self.update_progress)
+        self.progress_timer.start(50)
+
+    def create_envelopes(self):
+        """Create envelopes at random positions around the vortex."""
+        self.envelopes = []
+        for _ in range(12):
+            angle = random.uniform(0, 360)
+            distance = random.uniform(50, 120)  # Closer to center, away from edges
+            size = random.uniform(18, 30)
+            x = self.center_x + distance * math.cos(math.radians(angle))
+            y = self.center_y + distance * math.sin(math.radians(angle))
+            self.envelopes.append(Envelope(x, y, size, angle, distance))
+
+    def animate(self):
+        """Update animation state."""
+        self.vortex_rotation += 3
+
+        # Update each envelope - spiral toward center
+        for env in self.envelopes:
+            # Decrease distance (spiral inward)
+            env.distance -= 1.5 * env.speed
+
+            # Increase angle (rotate around center)
+            env.angle += 4 * env.speed
+
+            # Rotate the envelope itself
+            env.rotation += 5 * env.speed
+
+            # Update position based on polar coordinates
+            env.x = self.center_x + env.distance * math.cos(math.radians(env.angle))
+            env.y = self.center_y + env.distance * math.sin(math.radians(env.angle))
+
+            # Shrink as it approaches center
+            if env.distance < 60:
+                env.size *= 0.96
+                env.opacity = max(0, env.distance / 60)
+
+            # Reset envelope if it reaches center or becomes too small
+            if env.distance < 10 or env.size < 5:
+                env.angle = random.uniform(0, 360)
+                env.distance = random.uniform(100, 130)  # Respawn closer to center
+                env.size = random.uniform(18, 30)
+                env.rotation = random.uniform(0, 360)
+                env.speed = random.uniform(0.8, 1.2)
+                env.opacity = 1.0
+                env.x = self.center_x + env.distance * math.cos(math.radians(env.angle))
+                env.y = self.center_y + env.distance * math.sin(math.radians(env.angle))
+
+        self.update()
+
+    def update_progress(self):
+        """Update progress bar."""
+        self.progress += 2
+        if self.progress >= 100:
+            self.progress_timer.stop()
+        self.update()
+
+    def draw_envelope(self, painter, x, y, size, rotation, opacity):
+        """Draw a simple envelope shape."""
+        painter.save()
+        painter.translate(x, y)
+        painter.rotate(rotation)
+
+        # Set opacity
+        painter.setOpacity(opacity)
+
+        # Envelope body (rectangle)
+        envelope_color = QColor(COLORS['primary'])
+        envelope_color.setAlpha(int(220 * opacity))
+        painter.setBrush(QBrush(envelope_color))
+        painter.setPen(QPen(QColor(255, 255, 255, int(180 * opacity)), 1))
+
+        half_w = size / 2
+        half_h = size / 3
+        painter.drawRect(int(-half_w), int(-half_h), int(size), int(size * 0.66))
+
+        # Envelope flap (triangle)
+        flap_path = QPainterPath()
+        flap_path.moveTo(-half_w, -half_h)
+        flap_path.lineTo(0, half_h * 0.3)
+        flap_path.lineTo(half_w, -half_h)
+        flap_path.closeSubpath()
+
+        flap_color = QColor(COLORS['primary_hover'])
+        flap_color.setAlpha(int(200 * opacity))
+        painter.setBrush(QBrush(flap_color))
+        painter.drawPath(flap_path)
+
+        painter.restore()
+
+    def draw_vortex(self, painter):
+        """Draw the central vortex effect."""
+        # Draw spiral lines
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        for i in range(4):
+            offset_angle = self.vortex_rotation + (i * 90)
+
+            # Create gradient spiral
+            path = QPainterPath()
+            start_dist = 15
+            end_dist = 70
+
+            for j in range(50):
+                t = j / 49
+                angle = offset_angle + t * 360
+                dist = start_dist + t * (end_dist - start_dist)
+                x = self.center_x + dist * math.cos(math.radians(angle))
+                y = self.center_y + dist * math.sin(math.radians(angle))
+
+                if j == 0:
+                    path.moveTo(x, y)
+                else:
+                    path.lineTo(x, y)
+
+            # Draw with gradient alpha
+            pen_color = QColor(COLORS['primary'])
+            pen_color.setAlpha(150)
+            painter.setPen(QPen(pen_color, 3))
+            painter.drawPath(path)
+
+        # Draw center circle with gradient
+        gradient = QRadialGradient(self.center_x, self.center_y, 25)
+        gradient.setColorAt(0, QColor(COLORS['primary']))
+        gradient.setColorAt(0.7, QColor(COLORS['primary_light']))
+        gradient.setColorAt(1, QColor(255, 255, 255, 0))
+
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(self.center_x - 25, self.center_y - 25, 50, 50)
+
+    def paintEvent(self, event):
+        """Custom paint for the splash screen."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Transparent background - no fill
+
+        # Draw brand text at top with shadow for visibility
+        text_y = 50
+        font = QFont('Segoe UI', 24, QFont.Bold)
+        painter.setFont(font)
+
+        # Draw text outline/glow for visibility on any background
+        outline_color = QColor(255, 255, 255, 200)
+        for dx in [-2, -1, 0, 1, 2]:
+            for dy in [-2, -1, 0, 1, 2]:
+                if dx != 0 or dy != 0:
+                    painter.setPen(outline_color)
+                    painter.drawText(170 + dx, text_y + dy, "Docu")
+                    painter.drawText(245 + dx, text_y + dy, "Shuttle")
+
+        # Draw "Docu" in teal
+        painter.setPen(QColor(COLORS['primary']))
+        painter.drawText(170, text_y, "Docu")
+
+        # Draw "Shuttle" in muted purple
+        painter.setPen(QColor(147, 112, 162))  # Muted purple
+        painter.drawText(245, text_y, "Shuttle")
+
+        # Draw subtitle with outline for visibility
+        font = QFont('Segoe UI', 10)
+        painter.setFont(font)
+        subtitle_outline = QColor(255, 255, 255, 180)
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx != 0 or dy != 0:
+                    painter.setPen(subtitle_outline)
+                    painter.drawText(155 + dx, text_y + 25 + dy, "Email Forwarding Automation")
+        painter.setPen(QColor(80, 80, 80))
+        painter.drawText(155, text_y + 25, "Email Forwarding Automation")
+
+        # Draw the vortex
+        self.draw_vortex(painter)
+
+        # Draw envelopes
+        for env in self.envelopes:
+            self.draw_envelope(painter, env.x, env.y, env.size, env.rotation, env.opacity)
+
+        # Draw progress bar at bottom
+        progress_y = self.splash_height - 50
+        progress_width = self.splash_width - 100
+        progress_x = 50
+        progress_height = 6
+
+        # Background track
+        painter.setBrush(QBrush(QColor(COLORS['border'])))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(progress_x, progress_y, progress_width, progress_height, 3, 3)
+
+        # Progress fill
+        fill_width = int((self.progress / 100) * progress_width)
+        if fill_width > 0:
+            painter.setBrush(QBrush(QColor(COLORS['primary'])))
+            painter.drawRoundedRect(progress_x, progress_y, fill_width, progress_height, 3, 3)
+
+        # Loading text with shadow
+        font = QFont('Segoe UI', 9)
+        painter.setFont(font)
+        painter.setPen(QColor(0, 0, 0, 80))
+        loading_text = "Loading..." if self.progress < 100 else "Ready!"
+        painter.drawText(progress_x + 1, progress_y + 23, loading_text)
+        painter.drawText(progress_x + progress_width - 49, progress_y + 23, "v1.3.0")
+
+        painter.setPen(QColor(COLORS['text_secondary']))
+        painter.drawText(progress_x, progress_y + 22, loading_text)
+        painter.drawText(progress_x + progress_width - 50, progress_y + 22, "v1.3.0")
+
+        painter.end()
+
+    def finish_splash(self, window):
+        """Finish the splash and show main window."""
+        self.timer.stop()
+        self.progress_timer.stop()
+        self.finish(window)
+
+
+# ============================================================================
 # MAIN ENTRY POINT
 # ============================================================================
 def main():
@@ -1310,8 +1611,23 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 
-    window = OutlookMinerWindow()
-    window.show()
+    # Show animated splash screen
+    splash = AnimatedSplashScreen()
+    splash.show()
+    app.processEvents()
+
+    # Create the main window while splash is showing
+    window = DocuShuttleWindow()
+
+    # Wait for splash animation to complete (progress reaches 100%)
+    def check_splash_done():
+        if splash.progress >= 100:
+            splash.finish_splash(window)
+            window.show()
+        else:
+            QTimer.singleShot(100, check_splash_done)
+
+    QTimer.singleShot(100, check_splash_done)
 
     sys.exit(app.exec_())
 
