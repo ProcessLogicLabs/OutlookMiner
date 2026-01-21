@@ -22,13 +22,7 @@ import sqlite3
 import threading
 import re
 import time
-import json
-import subprocess
-import tempfile
-import shutil
 from queue import Queue, Empty
-from urllib.request import urlopen, Request
-from urllib.error import URLError, HTTPError
 
 # PyQt5 imports
 from PyQt5.QtWidgets import (
@@ -60,12 +54,6 @@ else:
 
 ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
 ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
-
-# Version and Update Configuration
-APP_VERSION = "1.4.2"
-GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
 
 # Constants
 LOG_BUFFER_SIZE = 10
@@ -312,183 +300,6 @@ QCheckBox::indicator:checked {{
 
 
 # ============================================================================
-# AUTO-UPDATE SYSTEM
-# ============================================================================
-class UpdateSignals(QObject):
-    """Signals for update checker thread."""
-    update_available = pyqtSignal(str, str)  # version, download_url
-    update_downloaded = pyqtSignal(str)  # path to downloaded file
-    update_error = pyqtSignal(str)
-    no_update = pyqtSignal()
-
-
-class UpdateChecker(QThread):
-    """Background thread to check for and download updates."""
-
-    def __init__(self, check_only=False):
-        super().__init__()
-        self.signals = UpdateSignals()
-        self.check_only = check_only
-        self.download_url = None
-        self.new_version = None
-
-    def run(self):
-        """Check GitHub for updates and optionally download."""
-        try:
-            # Check for updates
-            request = Request(GITHUB_API_URL)
-            request.add_header('User-Agent', f'DocuShuttle/{APP_VERSION}')
-
-            with urlopen(request, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-
-            latest_version = data.get('tag_name', '').lstrip('v')
-
-            if not latest_version:
-                self.signals.no_update.emit()
-                return
-
-            # Compare versions
-            if self._version_compare(latest_version, APP_VERSION) > 0:
-                # Find the exe asset
-                assets = data.get('assets', [])
-                download_url = None
-
-                for asset in assets:
-                    name = asset.get('name', '').lower()
-                    if name.endswith('.exe') and 'setup' in name:
-                        download_url = asset.get('browser_download_url')
-                        break
-
-                if not download_url:
-                    # Try to find any exe
-                    for asset in assets:
-                        if asset.get('name', '').lower().endswith('.exe'):
-                            download_url = asset.get('browser_download_url')
-                            break
-
-                if download_url:
-                    self.new_version = latest_version
-                    self.download_url = download_url
-                    self.signals.update_available.emit(latest_version, download_url)
-
-                    if not self.check_only:
-                        self._download_update(download_url, latest_version)
-                else:
-                    self.signals.no_update.emit()
-            else:
-                self.signals.no_update.emit()
-
-        except (URLError, HTTPError) as e:
-            self.signals.update_error.emit(f"Network error: {str(e)}")
-        except json.JSONDecodeError:
-            self.signals.update_error.emit("Invalid response from update server")
-        except Exception as e:
-            self.signals.update_error.emit(f"Update check failed: {str(e)}")
-
-    def _version_compare(self, v1, v2):
-        """Compare two version strings. Returns >0 if v1>v2, <0 if v1<v2, 0 if equal."""
-        def normalize(v):
-            return [int(x) for x in re.sub(r'[^0-9.]', '', v).split('.')]
-
-        v1_parts = normalize(v1)
-        v2_parts = normalize(v2)
-
-        # Pad shorter version with zeros
-        max_len = max(len(v1_parts), len(v2_parts))
-        v1_parts.extend([0] * (max_len - len(v1_parts)))
-        v2_parts.extend([0] * (max_len - len(v2_parts)))
-
-        for i in range(max_len):
-            if v1_parts[i] > v2_parts[i]:
-                return 1
-            elif v1_parts[i] < v2_parts[i]:
-                return -1
-        return 0
-
-    def _download_update(self, url, version):
-        """Download the update installer."""
-        try:
-            # Create updates directory in user's app data
-            update_dir = os.path.join(os.environ.get('LOCALAPPDATA', tempfile.gettempdir()),
-                                       'DocuShuttle', 'updates')
-            os.makedirs(update_dir, exist_ok=True)
-
-            # Download file
-            filename = f"DocuShuttle_Setup_v{version}.exe"
-            filepath = os.path.join(update_dir, filename)
-
-            request = Request(url)
-            request.add_header('User-Agent', f'DocuShuttle/{APP_VERSION}')
-
-            with urlopen(request, timeout=60) as response:
-                with open(filepath, 'wb') as f:
-                    shutil.copyfileobj(response, f)
-
-            self.signals.update_downloaded.emit(filepath)
-
-        except Exception as e:
-            self.signals.update_error.emit(f"Download failed: {str(e)}")
-
-
-def get_last_update_check():
-    """Get timestamp of last update check from settings file."""
-    settings_path = os.path.join(os.environ.get('LOCALAPPDATA', '.'),
-                                  'DocuShuttle', 'settings.json')
-    try:
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-                return settings.get('last_update_check', 0)
-    except:
-        pass
-    return 0
-
-
-def save_last_update_check():
-    """Save timestamp of update check to settings file."""
-    settings_dir = os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'DocuShuttle')
-    settings_path = os.path.join(settings_dir, 'settings.json')
-
-    try:
-        os.makedirs(settings_dir, exist_ok=True)
-        settings = {}
-
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-
-        settings['last_update_check'] = time.time()
-
-        with open(settings_path, 'w') as f:
-            json.dump(settings, f)
-    except:
-        pass
-
-
-def get_pending_update():
-    """Check if there's a downloaded update waiting to be installed."""
-    update_dir = os.path.join(os.environ.get('LOCALAPPDATA', tempfile.gettempdir()),
-                               'DocuShuttle', 'updates')
-    if os.path.exists(update_dir):
-        for filename in os.listdir(update_dir):
-            if filename.endswith('.exe') and 'Setup' in filename:
-                return os.path.join(update_dir, filename)
-    return None
-
-
-def clear_pending_updates():
-    """Remove any pending update files."""
-    update_dir = os.path.join(os.environ.get('LOCALAPPDATA', tempfile.gettempdir()),
-                               'DocuShuttle', 'updates')
-    if os.path.exists(update_dir):
-        try:
-            shutil.rmtree(update_dir)
-        except:
-            pass
-
-
-# ============================================================================
 # WORKER SIGNALS
 # ============================================================================
 class WorkerSignals(QObject):
@@ -629,28 +440,28 @@ def delete_config(recipient):
         return False
 
 
-def check_if_forwarded_db(identifier, recipient):
-    """Check if email was previously forwarded (by file number or EntryID)."""
+def check_if_forwarded_db(file_number, recipient):
+    """Check if file number was previously forwarded."""
     try:
         with db_lock:
             with sqlite3.connect('minerdb.db', timeout=10) as conn:
                 c = conn.cursor()
                 c.execute('''SELECT COUNT(*) FROM ForwardedEmails WHERE file_number = ? AND recipient = ?''',
-                          (identifier, recipient.lower()))
+                          (file_number, recipient.lower()))
                 return c.fetchone()[0] > 0
     except Exception:
         return False
 
 
-def log_forwarded_email(identifier, recipient):
-    """Log forwarded email to database (by file number or EntryID)."""
+def log_forwarded_email(file_number, recipient):
+    """Log forwarded email to database."""
     try:
         with db_lock:
             with sqlite3.connect('minerdb.db', timeout=10) as conn:
                 c = conn.cursor()
                 forwarded_at = datetime.datetime.now(pytz.timezone(DEFAULT_TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
                 c.execute('''INSERT OR REPLACE INTO ForwardedEmails (file_number, recipient, forwarded_at)
-                             VALUES (?, ?, ?)''', (identifier, recipient.lower(), forwarded_at))
+                             VALUES (?, ?, ?)''', (file_number, recipient.lower(), forwarded_at))
                 conn.commit()
     except Exception:
         pass
@@ -813,14 +624,14 @@ class OutlookWorker(QThread):
                             if not file_number:
                                 continue
 
-                        # Use file_number if available, otherwise use EntryID for tracking
+                        sent_on = item.SentOn
+                        if sent_on < start_date or sent_on > end_date:
+                            continue
+
+                        # Use file_number if available, otherwise use EntryID as unique identifier
                         tracking_id = file_number if file_number else item.EntryID
 
                         if skip_forwarded and check_if_forwarded_db(tracking_id, recipient):
-                            continue
-
-                        sent_on = item.SentOn
-                        if sent_on < start_date or sent_on > end_date:
                             continue
 
                         info = f"[{sent_on.strftime('%Y-%m-%d %H:%M:%S')}] {subject}"
@@ -917,17 +728,17 @@ class OutlookWorker(QThread):
                             if not file_number:
                                 continue
 
-                        # Use file_number if available, otherwise use EntryID for tracking
-                        tracking_id = file_number if file_number else item.EntryID
-
-                        if skip_forwarded and check_if_forwarded_db(tracking_id, recipient):
-                            continue
-
                         sent_on = item.SentOn
                         if sent_on < start_date or sent_on > end_date:
                             continue
 
                         if require_attachments and item.Attachments.Count == 0:
+                            continue
+
+                        # Use file_number if available, otherwise use EntryID as unique identifier
+                        tracking_id = file_number if file_number else item.EntryID
+
+                        if skip_forwarded and check_if_forwarded_db(tracking_id, recipient):
                             continue
 
                         new_subject = file_number if file_number else subject
@@ -941,7 +752,6 @@ class OutlookWorker(QThread):
                         self._log(f"Forwarded: {new_subject}")
                         self.signals.display_subject.emit(new_subject)
 
-                        # Log using file_number or EntryID
                         log_forwarded_email(tracking_id, recipient)
 
                         if delay_seconds > 0:
@@ -1056,12 +866,9 @@ class DocuShuttleWindow(QMainWindow):
         self.config_delay = "0"
         self.config_require_attachments = True
         self.config_skip_forwarded = True
-        self.update_checker = None
-        self.pending_update_path = None
 
         self.init_ui()
         self.load_saved_state()
-        self.check_for_updates_on_startup()
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -1157,14 +964,6 @@ class DocuShuttleWindow(QMainWindow):
 
         config_action = config_menu.addAction("Configuration...")
         config_action.triggered.connect(self.show_config_dialog)
-
-        config_menu.addSeparator()
-
-        check_update_action = config_menu.addAction("Check for Updates...")
-        check_update_action.triggered.connect(self.manual_check_for_updates)
-
-        about_action = config_menu.addAction(f"About DocuShuttle v{APP_VERSION}")
-        about_action.triggered.connect(self.show_about_dialog)
 
         self.config_menu_btn.setMenu(config_menu)
         header_layout.addWidget(self.config_menu_btn)
@@ -1489,23 +1288,6 @@ class DocuShuttleWindow(QMainWindow):
         if not self.validate_inputs():
             return
 
-        # Prompt user to configure prefix if not set
-        if not self.config_prefix.strip():
-            reply = QMessageBox.question(
-                self, "Configure File Number Prefix?",
-                "No file number prefix is configured.\n\n"
-                "Without a prefix, emails will be tracked by their unique ID, "
-                "and the original subject line will be preserved.\n\n"
-                "Would you like to configure a file number prefix now?",
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
-            )
-            if reply == QMessageBox.Yes:
-                self.show_config_dialog()
-                return
-            elif reply == QMessageBox.Cancel:
-                return
-            # If No, continue without prefix
-
         config = self.get_config()
 
         # Save configuration
@@ -1556,143 +1338,6 @@ class DocuShuttleWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.log("Cancellation requested...")
-
-    # ========================================================================
-    # AUTO-UPDATE METHODS
-    # ========================================================================
-    def check_for_updates_on_startup(self):
-        """Check for updates silently on startup."""
-        # Check if enough time has passed since last check
-        last_check = get_last_update_check()
-        current_time = time.time()
-
-        if current_time - last_check < UPDATE_CHECK_INTERVAL:
-            # Check if there's a pending update
-            pending = get_pending_update()
-            if pending and os.path.exists(pending):
-                self.prompt_install_update(pending)
-            return
-
-        # Start background update check
-        self.start_update_check(silent=True)
-
-    def manual_check_for_updates(self):
-        """Manually trigger update check from menu."""
-        self.log("Checking for updates...")
-        self.start_update_check(silent=False)
-
-    def start_update_check(self, silent=True):
-        """Start the update checker thread."""
-        if self.update_checker and self.update_checker.isRunning():
-            return
-
-        self.update_checker = UpdateChecker()
-        self.update_checker.signals.update_available.connect(
-            lambda ver, url, notes: self.on_update_available(ver, url, notes, silent))
-        self.update_checker.signals.update_downloaded.connect(self.on_update_downloaded)
-        self.update_checker.signals.update_error.connect(
-            lambda err: self.on_update_error(err, silent))
-        self.update_checker.signals.no_update.connect(
-            lambda: self.on_no_update(silent))
-        self.update_checker.start()
-
-    def on_update_available(self, version, download_url, release_notes, silent):
-        """Handle update available signal."""
-        save_last_update_check()
-
-        if silent:
-            # Silently download the update
-            self.log(f"New version {version} available, downloading...")
-            if self.update_checker:
-                self.update_checker.download_url = download_url
-                self.update_checker.download_update(download_url)
-        else:
-            # Ask user if they want to download
-            reply = QMessageBox.question(
-                self, "Update Available",
-                f"A new version ({version}) is available!\n\n"
-                f"Release notes:\n{release_notes[:500]}...\n\n"
-                f"Would you like to download and install it?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                self.log(f"Downloading update {version}...")
-                if self.update_checker:
-                    self.update_checker.download_update(download_url)
-
-    def on_update_downloaded(self, file_path):
-        """Handle update downloaded signal."""
-        self.pending_update_path = file_path
-        self.log(f"Update downloaded: {file_path}")
-
-        # Save pending update path
-        config_dir = os.path.dirname(os.path.abspath(__file__))
-        update_file = os.path.join(config_dir, '.pending_update')
-        with open(update_file, 'w') as f:
-            f.write(file_path)
-
-        self.prompt_install_update(file_path)
-
-    def prompt_install_update(self, file_path):
-        """Prompt user to install the downloaded update."""
-        reply = QMessageBox.question(
-            self, "Update Ready",
-            "A new update has been downloaded and is ready to install.\n\n"
-            "The application will close and the installer will run.\n"
-            "Would you like to install it now?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            self.install_update(file_path)
-
-    def install_update(self, file_path):
-        """Launch the installer and close the app."""
-        try:
-            # Launch the installer
-            subprocess.Popen([file_path], shell=True)
-            # Clear pending update
-            clear_pending_updates()
-            # Close the application
-            QApplication.quit()
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Update Error",
-                f"Failed to launch installer:\n{str(e)}"
-            )
-
-    def on_update_error(self, error, silent):
-        """Handle update error signal."""
-        save_last_update_check()
-        if not silent:
-            QMessageBox.warning(
-                self, "Update Check Failed",
-                f"Could not check for updates:\n{error}"
-            )
-        else:
-            self.log(f"Update check failed: {error}")
-
-    def on_no_update(self, silent):
-        """Handle no update available signal."""
-        save_last_update_check()
-        if not silent:
-            QMessageBox.information(
-                self, "No Updates",
-                f"You are running the latest version (v{APP_VERSION})."
-            )
-        else:
-            self.log("No updates available")
-
-    def show_about_dialog(self):
-        """Show about dialog."""
-        QMessageBox.about(
-            self, "About DocuShuttle",
-            f"<h2>DocuShuttle</h2>"
-            f"<p>Version {APP_VERSION}</p>"
-            f"<p>Email forwarding automation for Microsoft Outlook.</p>"
-            f"<p>&copy; 2024 Process Logic Labs</p>"
-            f"<p><a href='https://github.com/ProcessLogicLabs/DocuShuttle'>GitHub Repository</a></p>"
-        )
 
 
 # ============================================================================
@@ -1947,13 +1592,12 @@ class AnimatedSplashScreen(QSplashScreen):
         painter.setFont(font)
         painter.setPen(QColor(0, 0, 0, 80))
         loading_text = "Loading..." if self.progress < 100 else "Ready!"
-        version_text = f"v{APP_VERSION}"
         painter.drawText(progress_x + 1, progress_y + 23, loading_text)
-        painter.drawText(progress_x + progress_width - 49, progress_y + 23, version_text)
+        painter.drawText(progress_x + progress_width - 49, progress_y + 23, "v1.3.0")
 
         painter.setPen(QColor(COLORS['text_secondary']))
         painter.drawText(progress_x, progress_y + 22, loading_text)
-        painter.drawText(progress_x + progress_width - 50, progress_y + 22, version_text)
+        painter.drawText(progress_x + progress_width - 50, progress_y + 22, "v1.3.0")
 
         painter.end()
 
