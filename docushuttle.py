@@ -62,7 +62,7 @@ ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
 ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
 
 # Version and Update Configuration
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -494,7 +494,7 @@ def clear_pending_updates():
 class WorkerSignals(QObject):
     """Signals for worker threads to communicate with GUI."""
     log_message = pyqtSignal(str)
-    display_subject = pyqtSignal(str)
+    display_subject = pyqtSignal(str, str, str)  # subject, recipient, attachments
     operation_complete = pyqtSignal(int, int)
     search_complete = pyqtSignal(int, list)
     error = pyqtSignal(str)
@@ -932,6 +932,13 @@ class OutlookWorker(QThread):
 
                         new_subject = file_number if file_number else subject
 
+                        # Collect attachment names
+                        attachment_names = []
+                        if item.Attachments.Count > 0:
+                            for att in item.Attachments:
+                                attachment_names.append(att.FileName)
+                        attachments_str = ", ".join(attachment_names) if attachment_names else "No attachments"
+
                         forward_email = item.Forward()
                         forward_email.To = recipient
                         forward_email.Subject = new_subject
@@ -939,7 +946,7 @@ class OutlookWorker(QThread):
 
                         emails_processed += 1
                         self._log(f"Forwarded: {new_subject}")
-                        self.signals.display_subject.emit(new_subject)
+                        self.signals.display_subject.emit(new_subject, recipient, attachments_str)
 
                         log_forwarded_email(tracking_id, recipient)
 
@@ -1554,9 +1561,10 @@ class DocuShuttleWindow(QMainWindow):
         self.worker.finished.connect(lambda: self.set_buttons_enabled(True))
         self.worker.start()
 
-    def display_subject(self, subject):
-        """Display forwarded subject."""
-        self.files_text.append(subject)
+    def display_subject(self, subject, recipient, attachments):
+        """Display forwarded email details."""
+        details = f"Subject: {subject}\nTo: {recipient}\nAttachments: {attachments}\n"
+        self.files_text.append(details)
 
     def on_forward_complete(self, scanned, forwarded):
         """Handle forward completion."""
