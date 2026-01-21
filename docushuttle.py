@@ -62,7 +62,7 @@ ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
 ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
 
 # Version and Update Configuration
-APP_VERSION = "1.4.9"
+APP_VERSION = "1.5.0"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -1163,7 +1163,7 @@ class DocuShuttleWindow(QMainWindow):
         self.config_delay = "0"
         self.config_require_attachments = True
         self.config_skip_forwarded = True
-        self.config_auto_update = False
+        self.config_auto_update = True  # Default to auto-update enabled
         self.update_checker = None
         self.pending_update_path = None
         self.progress_dialog = None

@@ -1,8 +1,8 @@
 ; Inno Setup Script for DocuShuttle
-; Version: 1.4.9
+; Version: 1.5.0
 
 #define MyAppName "DocuShuttle"
-#define MyAppVersion "1.4.9"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Process Logic Labs"
 #define MyAppExeName "DocuShuttle.exe"
 

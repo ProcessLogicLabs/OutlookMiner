@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python outlook_miner_qt.py:*)",
       "Bash(venvScriptsactivate)",
-      "Bash(c:\\\\Users\\\\payne\\\\outlookminer\\\\venv\\\\Scripts\\\\python.exe:*)"
+      "Bash(c:\\\\Users\\\\payne\\\\outlookminer\\\\venv\\\\Scripts\\\\python.exe:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix win32timezone import error and enable auto-update by default\n\n- Added win32timezone to PyInstaller hidden imports to fix datetime processing errors\n- Changed default auto-update setting to True \\(enabled by default\\)\n- Users will now receive automatic silent updates unless they opt-out\n- Fixes \"No module named 'win32timezone'\" errors when processing Outlook emails\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)"
     ]
   }
 }
