@@ -946,7 +946,8 @@ class OutlookWorker(QThread):
 
                         emails_processed += 1
                         self._log(f"Forwarded: {new_subject}")
-                        self.signals.display_subject.emit(new_subject, recipient, attachments_str)
+                        # Always show original subject in preview
+                        self.signals.display_subject.emit(subject, recipient, attachments_str)
 
                         log_forwarded_email(tracking_id, recipient)
 
@@ -1784,7 +1785,7 @@ class AnimatedSplashScreen(QSplashScreen):
         self.envelopes = []
         for _ in range(12):
             angle = random.uniform(0, 360)
-            distance = random.uniform(30, 80)  # Tighter, within vortex bounds
+            distance = random.uniform(20, 55)  # Keep within vortex radius
             size = random.uniform(15, 25)
             x = self.center_x + distance * math.cos(math.radians(angle))
             y = self.center_y + distance * math.sin(math.radians(angle))

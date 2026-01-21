@@ -1,11 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+
 a = Analysis(
     ['docushuttle.py'],
     pathex=[],
     binaries=[],
     datas=[('myicon.ico', '.'), ('myicon.png', '.')],
-    hiddenimports=['win32timezone', 'pywin32', 'win32com.client'],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -21,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='DocuShuttle',
+    name='docushuttle',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
