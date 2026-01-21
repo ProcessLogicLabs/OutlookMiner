@@ -62,7 +62,7 @@ ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
 ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
 
 # Version and Update Configuration
-APP_VERSION = "1.4.7"
+APP_VERSION = "1.4.8"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -318,6 +318,7 @@ class UpdateSignals(QObject):
     """Signals for update checker thread."""
     update_available = pyqtSignal(str, str)  # version, download_url
     update_downloaded = pyqtSignal(str)  # path to downloaded file
+    download_progress = pyqtSignal(int, int)  # bytes_downloaded, total_bytes
     update_error = pyqtSignal(str)
     no_update = pyqtSignal()
 
@@ -407,7 +408,7 @@ class UpdateChecker(QThread):
         return 0
 
     def _download_update(self, url, version):
-        """Download the update installer."""
+        """Download the update installer with progress reporting."""
         try:
             # Create updates directory in user's app data
             update_dir = os.path.join(os.environ.get('LOCALAPPDATA', tempfile.gettempdir()),
@@ -422,8 +423,18 @@ class UpdateChecker(QThread):
             request.add_header('User-Agent', f'DocuShuttle/{APP_VERSION}')
 
             with urlopen(request, timeout=60) as response:
+                total_size = int(response.headers.get('Content-Length', 0))
+                downloaded = 0
+                chunk_size = 8192
+
                 with open(filepath, 'wb') as f:
-                    shutil.copyfileobj(response, f)
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        self.signals.download_progress.emit(downloaded, total_size)
 
             self.signals.update_downloaded.emit(filepath)
 
@@ -1061,6 +1072,64 @@ class ConfigDialog(QDialog):
 
 
 # ============================================================================
+# UPDATE PROGRESS DIALOG
+# ============================================================================
+class UpdateProgressDialog(QDialog):
+    """Progress dialog for update downloads."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Downloading Update")
+        self.setFixedSize(400, 150)
+        self.setStyleSheet(STYLESHEET)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Status label
+        self.status_label = QLabel("Downloading update...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        layout.addWidget(self.progress_bar)
+
+        # Details label
+        self.details_label = QLabel("")
+        self.details_label.setAlignment(Qt.AlignCenter)
+        self.details_label.setStyleSheet("color: #7D8A96; font-size: 10px;")
+        layout.addWidget(self.details_label)
+
+        layout.addStretch()
+
+    def update_progress(self, downloaded, total):
+        """Update progress bar with download progress."""
+        if total > 0:
+            percentage = int((downloaded / total) * 100)
+            self.progress_bar.setValue(percentage)
+
+            # Format sizes
+            downloaded_mb = downloaded / (1024 * 1024)
+            total_mb = total / (1024 * 1024)
+            self.details_label.setText(f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB")
+        else:
+            self.details_label.setText(f"{downloaded / (1024 * 1024):.1f} MB downloaded")
+
+    def set_installing(self):
+        """Change dialog to show installing status."""
+        self.status_label.setText("Installing update...")
+        self.progress_bar.setMaximum(0)  # Indeterminate progress
+        self.details_label.setText("Application will restart automatically")
+
+
+# ============================================================================
 # MAIN WINDOW
 # ============================================================================
 class DocuShuttleWindow(QMainWindow):
@@ -1076,6 +1145,7 @@ class DocuShuttleWindow(QMainWindow):
         self.config_auto_update = False
         self.update_checker = None
         self.pending_update_path = None
+        self.progress_dialog = None
 
         self.init_ui()
         self.load_saved_state()
@@ -1644,14 +1714,24 @@ class DocuShuttleWindow(QMainWindow):
                 self.download_update(download_url, version)
 
     def download_update(self, url, version):
-        """Download update in background."""
+        """Download update in background with progress dialog."""
+        # Create and show progress dialog
+        self.progress_dialog = UpdateProgressDialog(self)
+        self.progress_dialog.show()
+
         self.update_checker = UpdateChecker(check_only=False)
         self.update_checker.download_url = url
         self.update_checker.new_version = version
+        self.update_checker.signals.download_progress.connect(self.on_download_progress)
         self.update_checker.signals.update_downloaded.connect(self.on_update_downloaded)
         self.update_checker.signals.update_error.connect(
             lambda err: self.on_update_error(err, False))
         self.update_checker.start()
+
+    def on_download_progress(self, downloaded, total):
+        """Update progress dialog with download progress."""
+        if self.progress_dialog:
+            self.progress_dialog.update_progress(downloaded, total)
 
     def on_update_downloaded(self, file_path):
         """Handle update downloaded signal."""
@@ -1661,8 +1741,14 @@ class DocuShuttleWindow(QMainWindow):
         if self.config_auto_update:
             # Auto-install without prompting
             self.log("Auto-installing update...")
+            if self.progress_dialog:
+                self.progress_dialog.set_installing()
             self.install_update(file_path)
         else:
+            # Close progress dialog
+            if self.progress_dialog:
+                self.progress_dialog.close()
+                self.progress_dialog = None
             # Prompt user
             self.prompt_install_update(file_path)
 
@@ -1701,6 +1787,12 @@ class DocuShuttleWindow(QMainWindow):
     def on_update_error(self, error, silent):
         """Handle update error signal."""
         save_last_update_check()
+
+        # Close progress dialog if open
+        if self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+
         if not silent:
             QMessageBox.warning(
                 self, "Update Check Failed",
