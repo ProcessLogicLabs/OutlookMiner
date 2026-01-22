@@ -62,7 +62,7 @@ ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
 ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
 
 # Version and Update Configuration
-APP_VERSION = "1.5.4"
+APP_VERSION = "1.5.5"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -1006,80 +1006,108 @@ class ConfigDialog(QDialog):
 
     def __init__(self, parent=None, prefix="", delay="0", require_attach=True, skip_fwd=True, auto_update=False):
         super().__init__(parent)
-        self.setWindowTitle("Configuration")
-        self.setFixedSize(400, 320)
-        self.setStyleSheet(STYLESHEET)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        try:
+            self.setWindowTitle("Configuration")
+            self.setFixedSize(400, 320)
 
-        # Form layout
-        form = QFormLayout()
-        form.setSpacing(12)
+            # Try to apply stylesheet
+            try:
+                self.setStyleSheet(STYLESHEET)
+            except Exception as style_error:
+                # Log to file if stylesheet fails
+                try:
+                    error_log = os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'DocuShuttle', 'error.log')
+                    os.makedirs(os.path.dirname(error_log), exist_ok=True)
+                    with open(error_log, 'a') as f:
+                        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Stylesheet error: {style_error}\n")
+                except:
+                    pass
 
-        self.prefix_edit = QLineEdit(prefix)
-        self.prefix_edit.setPlaceholderText("e.g., 759,123")
-        self.prefix_edit.setToolTip(
-            "Comma-separated list of file number prefixes to filter emails.\n"
-            "Only emails with attachments or subjects containing these prefixes will be processed.\n"
-            "Leave empty to process all matching emails."
-        )
-        form.addRow("File Number Prefixes:", self.prefix_edit)
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(20, 20, 20, 20)
+            layout.setSpacing(15)
 
-        self.delay_edit = QLineEdit(delay)
-        self.delay_edit.setPlaceholderText("Seconds between emails")
-        self.delay_edit.setToolTip(
-            "Time delay in seconds between forwarding each email.\n"
-            "Use this to avoid overwhelming the mail server.\n"
-            "Set to 0 for no delay."
-        )
-        form.addRow("Delay (Sec.):", self.delay_edit)
+            # Form layout
+            form = QFormLayout()
+            form.setSpacing(12)
 
-        self.require_attach_check = QCheckBox()
-        self.require_attach_check.setChecked(require_attach)
-        self.require_attach_check.setToolTip(
-            "When checked, only emails with attachments will be forwarded.\n"
-            "Uncheck to forward emails regardless of attachments."
-        )
-        form.addRow("Require Attachments:", self.require_attach_check)
+            self.prefix_edit = QLineEdit(prefix)
+            self.prefix_edit.setPlaceholderText("e.g., 759,123")
+            self.prefix_edit.setToolTip(
+                "Comma-separated list of file number prefixes to filter emails.\n"
+                "Only emails with attachments or subjects containing these prefixes will be processed.\n"
+                "Leave empty to process all matching emails."
+            )
+            form.addRow("File Number Prefixes:", self.prefix_edit)
 
-        self.skip_fwd_check = QCheckBox()
-        self.skip_fwd_check.setChecked(skip_fwd)
-        self.skip_fwd_check.setToolTip(
-            "When checked, emails that have already been forwarded will be skipped.\n"
-            "This prevents duplicate forwards using the tracking database.\n"
-            "Uncheck to re-forward previously forwarded emails."
-        )
-        form.addRow("Skip Previously Forwarded:", self.skip_fwd_check)
+            self.delay_edit = QLineEdit(delay)
+            self.delay_edit.setPlaceholderText("Seconds between emails")
+            self.delay_edit.setToolTip(
+                "Time delay in seconds between forwarding each email.\n"
+                "Use this to avoid overwhelming the mail server.\n"
+                "Set to 0 for no delay."
+            )
+            form.addRow("Delay (Sec.):", self.delay_edit)
 
-        self.auto_update_check = QCheckBox()
-        self.auto_update_check.setChecked(auto_update)
-        self.auto_update_check.setToolTip(
-            "When checked, updates will be downloaded and installed automatically.\n"
-            "The app will close and restart with the new version.\n"
-            "Uncheck to be prompted before installing updates."
-        )
-        form.addRow("Auto-Install Updates:", self.auto_update_check)
+            self.require_attach_check = QCheckBox()
+            self.require_attach_check.setChecked(require_attach)
+            self.require_attach_check.setToolTip(
+                "When checked, only emails with attachments will be forwarded.\n"
+                "Uncheck to forward emails regardless of attachments."
+            )
+            form.addRow("Require Attachments:", self.require_attach_check)
 
-        layout.addLayout(form)
-        layout.addStretch()
+            self.skip_fwd_check = QCheckBox()
+            self.skip_fwd_check.setChecked(skip_fwd)
+            self.skip_fwd_check.setToolTip(
+                "When checked, emails that have already been forwarded will be skipped.\n"
+                "This prevents duplicate forwards using the tracking database.\n"
+                "Uncheck to re-forward previously forwarded emails."
+            )
+            form.addRow("Skip Previously Forwarded:", self.skip_fwd_check)
 
-        # Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+            self.auto_update_check = QCheckBox()
+            self.auto_update_check.setChecked(auto_update)
+            self.auto_update_check.setToolTip(
+                "When checked, updates will be downloaded and installed automatically.\n"
+                "The app will close and restart with the new version.\n"
+                "Uncheck to be prompted before installing updates."
+            )
+            form.addRow("Auto-Install Updates:", self.auto_update_check)
 
-        save_btn = QPushButton("Save")
-        save_btn.setObjectName("primaryButton")
-        save_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(save_btn)
+            layout.addLayout(form)
+            layout.addStretch()
 
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("secondaryButton")
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(cancel_btn)
+            # Buttons
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
 
-        layout.addLayout(btn_layout)
+            save_btn = QPushButton("Save")
+            save_btn.setObjectName("primaryButton")
+            save_btn.clicked.connect(self.accept)
+            btn_layout.addWidget(save_btn)
+
+            cancel_btn = QPushButton("Cancel")
+            cancel_btn.setObjectName("secondaryButton")
+            cancel_btn.clicked.connect(self.reject)
+            btn_layout.addWidget(cancel_btn)
+
+            layout.addLayout(btn_layout)
+
+        except Exception as e:
+            # Log critical error to file
+            try:
+                error_log = os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'DocuShuttle', 'error.log')
+                os.makedirs(os.path.dirname(error_log), exist_ok=True)
+                with open(error_log, 'a') as f:
+                    import traceback
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ConfigDialog error:\n")
+                    f.write(traceback.format_exc())
+                    f.write("\n")
+            except:
+                pass
+            raise
 
     def get_values(self):
         """Return dialog values."""
@@ -1479,24 +1507,44 @@ class DocuShuttleWindow(QMainWindow):
 
     def show_config_dialog(self):
         """Show configuration dialog."""
-        dialog = ConfigDialog(
-            self,
-            self.config_prefix,
-            self.config_delay,
-            self.config_require_attachments,
-            self.config_skip_forwarded,
-            self.config_auto_update
-        )
+        try:
+            dialog = ConfigDialog(
+                self,
+                self.config_prefix,
+                self.config_delay,
+                self.config_require_attachments,
+                self.config_skip_forwarded,
+                self.config_auto_update
+            )
 
-        if dialog.exec_() == QDialog.Accepted:
-            values = dialog.get_values()
-            self.config_prefix = values['prefix']
-            self.config_delay = values['delay']
-            self.config_require_attachments = values['require_attachments']
-            self.config_skip_forwarded = values['skip_forwarded']
-            self.config_auto_update = values['auto_update']
-            save_setting('auto_update', self.config_auto_update)
-            self.log("Configuration updated")
+            if dialog.exec_() == QDialog.Accepted:
+                values = dialog.get_values()
+                self.config_prefix = values['prefix']
+                self.config_delay = values['delay']
+                self.config_require_attachments = values['require_attachments']
+                self.config_skip_forwarded = values['skip_forwarded']
+                self.config_auto_update = values['auto_update']
+                save_setting('auto_update', self.config_auto_update)
+                self.log("Configuration updated")
+        except Exception as e:
+            # Log error and show user-friendly message
+            error_msg = f"Failed to open configuration dialog: {str(e)}"
+            self.log(error_msg)
+            try:
+                error_log = os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'DocuShuttle', 'error.log')
+                os.makedirs(os.path.dirname(error_log), exist_ok=True)
+                with open(error_log, 'a') as f:
+                    import traceback
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] show_config_dialog error:\n")
+                    f.write(traceback.format_exc())
+                    f.write("\n")
+            except:
+                pass
+            QMessageBox.critical(
+                self, "Configuration Error",
+                f"Failed to open configuration dialog.\n\nError: {str(e)}\n\n"
+                f"Check error.log in %LOCALAPPDATA%\\DocuShuttle"
+            )
 
     def show_email_context_menu(self, position):
         """Show right-click context menu for email combobox."""
