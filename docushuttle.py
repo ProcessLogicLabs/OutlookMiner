@@ -978,8 +978,8 @@ class OutlookWorker(QThread):
 
                         emails_processed += 1
                         self._log(f"Forwarded: {new_subject}")
-                        # Always show original subject in preview
-                        self.signals.display_subject.emit(subject, recipient, attachments_str)
+                        # Show the sent subject (new_subject) in preview
+                        self.signals.display_subject.emit(new_subject, recipient, attachments_str)
 
                         log_forwarded_email(tracking_id, recipient)
 
