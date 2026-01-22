@@ -62,7 +62,7 @@ ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
 ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
 
 # Version and Update Configuration
-APP_VERSION = "1.5.2"
+APP_VERSION = "1.5.3"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -1815,28 +1815,21 @@ class DocuShuttleWindow(QMainWindow):
             # Log the action
             self.log(f"Launching installer: {file_path}")
 
-            # Launch installer with a batch script to ensure proper timing
-            # This ensures the app closes before the installer tries to replace files
-            batch_script = os.path.join(tempfile.gettempdir(), 'docushuttle_update.bat')
-            with open(batch_script, 'w') as f:
-                f.write('@echo off\n')
-                f.write('timeout /t 5 /nobreak >nul\n')  # Wait 5 seconds for app to close
-                f.write(f'"{file_path}" /VERYSILENT /SUPPRESSMSGBOXES /RESTARTAPPLICATIONS /NORESTART\n')
-                f.write(f'del "%~f0"\n')  # Delete the batch script itself
+            # Show message to user
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Installing Update")
+            msg.setText("The installer will launch now.\n\nPlease wait for the installation to complete.")
+            msg.setIcon(QMessageBox.Information)
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
 
-            # Launch the batch script
-            subprocess.Popen(
-                batch_script,
-                shell=False,
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-            )
+            # Launch the installer directly
+            subprocess.Popen([file_path])
 
-            self.log("Update installer scheduled, closing application...")
+            self.log("Installer launched, closing application...")
 
-            # Force close all windows and quit immediately
-            QApplication.closeAllWindows()
-            QApplication.processEvents()
-            QApplication.quit()
+            # Close the application
+            QTimer.singleShot(500, QApplication.quit)
 
         except Exception as e:
             self.log(f"Installer launch error: {str(e)}")
