@@ -63,7 +63,7 @@ ICON_PATH = os.path.join(BASE_PATH, 'myicon.ico')
 ICON_PNG_PATH = os.path.join(BASE_PATH, 'myicon.png')
 
 # Version and Update Configuration
-APP_VERSION = "1.5.8"
+APP_VERSION = "1.5.9"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -75,6 +75,13 @@ DEFAULT_TIMEZONE = 'US/Eastern'
 
 # Thread lock for database access
 db_lock = threading.Lock()
+
+# Database path in user's app data folder
+def get_db_path():
+    """Get the path to the database file in %LOCALAPPDATA%\\DocuShuttle."""
+    db_dir = os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'DocuShuttle')
+    os.makedirs(db_dir, exist_ok=True)
+    return os.path.join(db_dir, 'docushuttle.db')
 
 # ============================================================================
 # STYLE CONSTANTS - OCRMill Light Theme
@@ -539,10 +546,11 @@ class WorkerSignals(QObject):
 # ============================================================================
 def init_db():
     """Initialize SQLite database and create required tables."""
-    new_db = not os.path.exists('minerdb.db')
+    db_path = get_db_path()
+    new_db = not os.path.exists(db_path)
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(db_path, timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Clients'")
                 if not c.fetchone():
@@ -580,7 +588,7 @@ def load_email_addresses():
     """Load all distinct recipient email addresses from the database."""
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("SELECT DISTINCT recipient FROM Clients WHERE recipient IS NOT NULL")
                 return [row[0] for row in c.fetchall()]
@@ -592,7 +600,7 @@ def save_setting(key, value):
     """Save a setting to the Settings table."""
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)", (key, value))
                 conn.commit()
@@ -604,7 +612,7 @@ def load_setting(key):
     """Load a setting from the Settings table."""
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("SELECT value FROM Settings WHERE key = ?", (key,))
                 result = c.fetchone()
@@ -617,7 +625,7 @@ def load_config_for_email(recipient):
     """Load configuration for a specific email address."""
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 c.execute('''SELECT start_date, end_date, file_number_prefix, subject_keyword,
                              require_attachments, skip_forwarded, delay_seconds
@@ -633,7 +641,7 @@ def save_config(recipient, start_date, end_date, file_number_prefix, subject_key
     created_at = datetime.datetime.now(pytz.timezone(DEFAULT_TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 c.execute('''INSERT OR REPLACE INTO Clients
                              (recipient, start_date, end_date, file_number_prefix, subject_keyword,
@@ -653,7 +661,7 @@ def delete_config(recipient):
     """Delete configuration for a recipient."""
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("DELETE FROM Clients WHERE recipient = ?", (recipient,))
                 conn.commit()
@@ -666,7 +674,7 @@ def check_if_forwarded_db(file_number, recipient):
     """Check if file number was previously forwarded."""
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 c.execute('''SELECT COUNT(*) FROM ForwardedEmails WHERE file_number = ? AND recipient = ?''',
                           (file_number, recipient.lower()))
@@ -679,7 +687,7 @@ def log_forwarded_email(file_number, recipient):
     """Log forwarded email to database."""
     try:
         with db_lock:
-            with sqlite3.connect('minerdb.db', timeout=10) as conn:
+            with sqlite3.connect(get_db_path(), timeout=10) as conn:
                 c = conn.cursor()
                 forwarded_at = datetime.datetime.now(pytz.timezone(DEFAULT_TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
                 c.execute('''INSERT OR REPLACE INTO ForwardedEmails (file_number, recipient, forwarded_at)
