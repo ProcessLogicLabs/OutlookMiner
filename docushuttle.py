@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem
 )
 from PyQt5.QtCore import Qt, QDate, QTimer, pyqtSignal, QObject, QThread, QPropertyAnimation, QPointF, QRectF, QEasingCurve
-from PyQt5.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QPainter, QPen, QBrush, QPainterPath, QRadialGradient
+from PyQt5.QtGui import QFont, QIcon, QPalette, QColor, QPixmap, QPainter, QPen, QBrush, QPainterPath, QRadialGradient, QLinearGradient
 from PyQt5.QtWidgets import QSplashScreen, QProgressBar
 import math
 import random
@@ -84,7 +84,7 @@ def get_app_data_dir():
     return data_dir
 
 # Version and Update Configuration
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.6.3"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -2030,256 +2030,414 @@ class DocuShuttleWindow(QMainWindow):
 
 
 # ============================================================================
-# ANIMATED SPLASH SCREEN
+# ANIMATED SPLASH SCREEN (Premium Design)
 # ============================================================================
-class Envelope:
-    """Represents an envelope that spirals into the vortex."""
-    def __init__(self, x, y, size, angle, distance):
-        self.x = x
-        self.y = y
-        self.size = size
-        self.angle = angle  # Angle around the vortex center
-        self.distance = distance  # Distance from center
-        self.rotation = random.uniform(0, 360)  # Envelope rotation
-        self.speed = random.uniform(0.8, 1.2)  # Speed multiplier
-        self.opacity = 1.0
-
-
-class AnimatedSplashScreen(QSplashScreen):
-    """Animated splash screen with envelopes spiraling into a vortex."""
+class AnimatedSplashScreen(QWidget):
+    """Premium animated splash screen for DocuShuttle."""
 
     def __init__(self):
-        # Create a pixmap for the splash
-        self.splash_width = 500
-        self.splash_height = 350
-        pixmap = QPixmap(self.splash_width, self.splash_height)
-        pixmap.fill(Qt.white)
-        super().__init__(pixmap)
+        super().__init__(None)
 
-        # Set window flags
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.SplashScreen)
+        # Timing
+        self.start_time = time.time()
+        self.fade_opacity = 1.0
+        self.is_fading = False
 
-        # Vortex center
-        self.center_x = self.splash_width // 2
-        self.center_y = self.splash_height // 2 - 20
-
-        # Create envelopes at various positions around the vortex
-        self.envelopes = []
-        self.create_envelopes()
-
-        # Animation properties
-        self.vortex_rotation = 0
+        # Progress
         self.progress = 0
+        self._target_progress = 0
+        self._message = "Initializing..."
 
-        # Timer for animation
+        # Animation states
+        self.intro_progress = 0.0
+        self.ring_rotation = 0.0
+        self.pulse_phase = 0.0
+        self.wave_offset = 0.0
+
+        # Window setup
+        self.splash_width = 540
+        self.splash_height = 340
+        self.setFixedSize(self.splash_width, self.splash_height)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
+
+        # Animation timer
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.animate)
-        self.timer.start(30)  # ~33 FPS
+        self.timer.timeout.connect(self._animate)
+        self.timer.start(16)  # ~60 FPS
 
         # Progress timer
         self.progress_timer = QTimer(self)
-        self.progress_timer.timeout.connect(self.update_progress)
+        self.progress_timer.timeout.connect(self._update_progress)
         self.progress_timer.start(50)
 
-    def create_envelopes(self):
-        """Create envelopes at random positions around the vortex."""
-        self.envelopes = []
-        for _ in range(12):
-            angle = random.uniform(0, 360)
-            distance = random.uniform(20, 55)  # Keep within vortex radius
-            size = random.uniform(15, 25)
-            x = self.center_x + distance * math.cos(math.radians(angle))
-            y = self.center_y + distance * math.sin(math.radians(angle))
-            self.envelopes.append(Envelope(x, y, size, angle, distance))
+        # Center on screen
+        screen = QApplication.primaryScreen().geometry()
+        self.move(
+            (screen.width() - self.splash_width) // 2,
+            (screen.height() - self.splash_height) // 2
+        )
 
-    def animate(self):
-        """Update animation state."""
-        self.vortex_rotation += 3
+    def _animate(self):
+        """Update animations."""
+        elapsed = time.time() - self.start_time
 
-        # Update each envelope - spiral toward center
-        for env in self.envelopes:
-            # Decrease distance (spiral inward)
-            env.distance -= 1.5 * env.speed
+        # Fade out
+        if self.is_fading:
+            self.fade_opacity = max(0, self.fade_opacity - 0.04)
+            if self.fade_opacity <= 0:
+                self.timer.stop()
+                self.close()
+                return
 
-            # Increase angle (rotate around center)
-            env.angle += 4 * env.speed
+        # Intro animation (0 to 1.0s)
+        if elapsed < 1.0:
+            t = elapsed / 1.0
+            self.intro_progress = 1 if t == 1 else 1 - pow(2, -10 * t)
+        else:
+            self.intro_progress = 1.0
 
-            # Rotate the envelope itself
-            env.rotation += 5 * env.speed
+        # Continuous animations
+        self.ring_rotation = elapsed * 30
+        self.pulse_phase = elapsed * 2.5
+        self.wave_offset = elapsed * 80
 
-            # Update position based on polar coordinates
-            env.x = self.center_x + env.distance * math.cos(math.radians(env.angle))
-            env.y = self.center_y + env.distance * math.sin(math.radians(env.angle))
-
-            # Shrink as it approaches center
-            if env.distance < 60:
-                env.size *= 0.96
-                env.opacity = max(0, env.distance / 60)
-
-            # Reset envelope if it reaches center or becomes too small
-            if env.distance < 10 or env.size < 5:
-                env.angle = random.uniform(0, 360)
-                env.distance = random.uniform(100, 130)  # Respawn closer to center
-                env.size = random.uniform(18, 30)
-                env.rotation = random.uniform(0, 360)
-                env.speed = random.uniform(0.8, 1.2)
-                env.opacity = 1.0
-                env.x = self.center_x + env.distance * math.cos(math.radians(env.angle))
-                env.y = self.center_y + env.distance * math.sin(math.radians(env.angle))
+        # Smooth progress (snap to target when close)
+        diff = self._target_progress - self.progress
+        if abs(diff) < 0.5:
+            self.progress = self._target_progress
+        else:
+            self.progress += diff * 0.15
 
         self.update()
 
-    def update_progress(self):
+    def _update_progress(self):
         """Update progress bar."""
-        self.progress += 2
-        if self.progress >= 100:
+        if self._target_progress < 100:
+            self._target_progress += 2
+            # Update messages based on progress
+            if self._target_progress < 20:
+                self._message = "Initializing..."
+            elif self._target_progress < 40:
+                self._message = "Loading configuration..."
+            elif self._target_progress < 60:
+                self._message = "Connecting to Outlook..."
+            elif self._target_progress < 80:
+                self._message = "Loading email data..."
+            else:
+                self._message = "Almost ready..."
+        else:
+            self._message = "Ready!"
             self.progress_timer.stop()
-        self.update()
 
-    def draw_envelope(self, painter, x, y, size, rotation, opacity):
-        """Draw a simple envelope shape."""
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+        # Apply fade opacity
+        if self.is_fading:
+            painter.setOpacity(self.fade_opacity)
+
+        # Draw solid background
+        painter.fillRect(self.rect(), QColor(15, 23, 42))
+
+        self._draw_background(painter)
+        self._draw_orbital_rings(painter)
+        self._draw_center_emblem(painter)
+        self._draw_title(painter)
+        self._draw_tagline(painter)
+        self._draw_progress_area(painter)
+        self._draw_corner_accents(painter)
+
+        painter.end()
+
+    def _draw_background(self, painter):
+        """Draw premium gradient background."""
         painter.save()
-        painter.translate(x, y)
-        painter.rotate(rotation)
 
-        # Set opacity
-        painter.setOpacity(opacity)
+        # Rich gradient background
+        bg = QLinearGradient(0, 0, self.width(), self.height())
+        bg.setColorAt(0, QColor(15, 23, 42))
+        bg.setColorAt(0.5, QColor(30, 41, 59))
+        bg.setColorAt(1, QColor(15, 23, 42))
 
-        # Envelope body (rectangle)
-        envelope_color = QColor(COLORS['primary'])
-        envelope_color.setAlpha(int(220 * opacity))
-        painter.setBrush(QBrush(envelope_color))
-        painter.setPen(QPen(QColor(255, 255, 255, int(180 * opacity)), 1))
+        painter.setBrush(bg)
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(self.rect())
 
-        half_w = size / 2
-        half_h = size / 3
-        painter.drawRect(int(-half_w), int(-half_h), int(size), int(size * 0.66))
+        # Subtle top glow (teal for DocuShuttle)
+        glow_rect = QRectF(0, 0, self.width(), 140)
+        glow = QLinearGradient(0, 0, 0, 140)
+        glow.setColorAt(0, QColor(93, 154, 150, 30))  # Muted teal
+        glow.setColorAt(1, QColor(93, 154, 150, 0))
+        painter.setBrush(glow)
+        painter.drawRect(glow_rect)
+
+        # Border
+        painter.setBrush(Qt.NoBrush)
+        border_pen = QPen(QColor(93, 154, 150, 120))  # Muted teal
+        border_pen.setWidth(2)
+        painter.setPen(border_pen)
+        painter.drawRect(self.rect().adjusted(1, 1, -1, -1))
+
+        painter.restore()
+
+    def _draw_orbital_rings(self, painter):
+        """Draw rotating orbital rings around center."""
+        painter.save()
+
+        cx, cy = self.width() / 2, 100
+        opacity = self.intro_progress * 0.7
+
+        # Outer ring
+        painter.translate(cx, cy)
+        painter.rotate(self.ring_rotation)
+
+        # Draw ring as arc segments
+        pen = QPen(QColor(93, 154, 150, int(200 * opacity)))  # Teal
+        pen.setWidth(2)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        # Draw partial arcs
+        painter.drawArc(QRectF(-50, -50, 100, 100), 0, 120 * 16)
+
+        pen.setColor(QColor(147, 112, 162, int(200 * opacity)))  # Purple
+        painter.setPen(pen)
+        painter.drawArc(QRectF(-50, -50, 100, 100), 180 * 16, 120 * 16)
+
+        # Inner ring (counter-rotate)
+        painter.rotate(-self.ring_rotation * 2)
+
+        pen.setColor(QColor(127, 179, 175, int(150 * opacity)))  # Light teal
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.drawArc(QRectF(-36, -36, 72, 72), 60 * 16, 120 * 16)
+
+        pen.setColor(QColor(93, 154, 150, int(150 * opacity)))  # Teal
+        painter.setPen(pen)
+        painter.drawArc(QRectF(-36, -36, 72, 72), 240 * 16, 120 * 16)
+
+        painter.restore()
+
+    def _draw_center_emblem(self, painter):
+        """Draw the central emblem with envelope icon."""
+        painter.save()
+
+        cx, cy = self.width() / 2, 100
+        scale = self.intro_progress
+
+        painter.translate(cx, cy)
+        painter.scale(scale, scale)
+
+        # Outer glow circle
+        glow = QRadialGradient(0, 0, 45)
+        glow.setColorAt(0, QColor(93, 154, 150, 60))  # Teal
+        glow.setColorAt(0.6, QColor(147, 112, 162, 30))  # Purple
+        glow.setColorAt(1, QColor(0, 0, 0, 0))
+        painter.setBrush(glow)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QPointF(0, 0), 45, 45)
+
+        # Main emblem circle
+        emblem_bg = QRadialGradient(0, -8, 32)
+        emblem_bg.setColorAt(0, QColor(51, 65, 85))
+        emblem_bg.setColorAt(1, QColor(30, 41, 59))
+
+        painter.setBrush(emblem_bg)
+        pen = QPen(QColor(71, 85, 105))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.drawEllipse(QPointF(0, 0), 28, 28)
+
+        # Pulsing inner ring
+        pulse = 0.85 + 0.15 * math.sin(self.pulse_phase)
+        pen = QPen(QColor(93, 154, 150, 180))  # Teal
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(QPointF(0, 0), 20 * pulse, 20 * pulse)
+
+        # Draw envelope icon
+        painter.setPen(Qt.NoPen)
+        envelope_color = QColor(226, 232, 240)
+        painter.setBrush(envelope_color)
+
+        # Envelope body
+        env_w, env_h = 16, 11
+        painter.drawRect(int(-env_w/2), int(-env_h/2 + 1), env_w, env_h)
 
         # Envelope flap (triangle)
         flap_path = QPainterPath()
-        flap_path.moveTo(-half_w, -half_h)
-        flap_path.lineTo(0, half_h * 0.3)
-        flap_path.lineTo(half_w, -half_h)
+        flap_path.moveTo(-env_w/2, -env_h/2 + 1)
+        flap_path.lineTo(0, 3)
+        flap_path.lineTo(env_w/2, -env_h/2 + 1)
         flap_path.closeSubpath()
 
-        flap_color = QColor(COLORS['primary_hover'])
-        flap_color.setAlpha(int(200 * opacity))
-        painter.setBrush(QBrush(flap_color))
+        painter.setBrush(QColor(200, 210, 220))
         painter.drawPath(flap_path)
 
         painter.restore()
 
-    def draw_vortex(self, painter):
-        """Draw the central vortex effect."""
-        # Draw spiral lines
-        painter.setRenderHint(QPainter.Antialiasing)
+    def _draw_title(self, painter):
+        """Draw application title."""
+        painter.save()
 
-        for i in range(4):
-            offset_angle = self.vortex_rotation + (i * 90)
+        opacity = max(0, (self.intro_progress - 0.2) / 0.8) if self.intro_progress > 0.2 else 0
 
-            # Create tighter gradient spiral
-            path = QPainterPath()
-            start_dist = 10
-            end_dist = 55
-
-            for j in range(50):
-                t = j / 49
-                angle = offset_angle + t * 270  # Tighter spiral (less rotation)
-                dist = start_dist + t * (end_dist - start_dist)
-                x = self.center_x + dist * math.cos(math.radians(angle))
-                y = self.center_y + dist * math.sin(math.radians(angle))
-
-                if j == 0:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
-
-            # Draw with gradient alpha
-            pen_color = QColor(COLORS['primary'])
-            pen_color.setAlpha(150)
-            painter.setPen(QPen(pen_color, 2.5))
-            painter.drawPath(path)
-
-        # Draw smaller center circle with gradient
-        gradient = QRadialGradient(self.center_x, self.center_y, 18)
-        gradient.setColorAt(0, QColor(COLORS['primary']))
-        gradient.setColorAt(0.7, QColor(COLORS['primary_light']))
-        gradient.setColorAt(1, QColor(255, 255, 255, 0))
-
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(self.center_x - 18, self.center_y - 18, 36, 36)
-
-    def paintEvent(self, event):
-        """Custom paint for the splash screen."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # White background (filled in __init__)
-
-        # Draw brand text at top
-        text_y = 50
-        font = QFont('Segoe UI', 24, QFont.Bold)
+        # Title font
+        font = QFont("Segoe UI", 36, QFont.Light)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, 2)
         painter.setFont(font)
+
+        title_rect = QRectF(0, 155, self.width(), 50)
+
+        # Shadow
+        painter.setPen(QColor(0, 0, 0, int(100 * opacity)))
+        painter.drawText(title_rect.adjusted(2, 2, 2, 2), Qt.AlignCenter, "DocuShuttle")
 
         # Draw "Docu" in teal
-        painter.setPen(QColor(COLORS['primary']))
-        painter.drawText(170, text_y, "Docu")
+        metrics = painter.fontMetrics()
+        full_width = metrics.horizontalAdvance("DocuShuttle")
+        start_x = (self.width() - full_width) / 2
 
-        # Draw "Shuttle" in muted purple
-        painter.setPen(QColor(147, 112, 162))  # Muted purple
-        painter.drawText(245, text_y, "Shuttle")
+        painter.setPen(QColor(93, 154, 150, int(255 * opacity)))  # Teal
+        painter.drawText(int(start_x), 195, "Docu")
 
-        # Draw subtitle
-        font = QFont('Segoe UI', 10)
+        # Draw "Shuttle" in purple
+        docu_width = metrics.horizontalAdvance("Docu")
+        painter.setPen(QColor(147, 112, 162, int(255 * opacity)))  # Purple
+        painter.drawText(int(start_x + docu_width), 195, "Shuttle")
+
+        painter.restore()
+
+    def _draw_tagline(self, painter):
+        """Draw tagline."""
+        painter.save()
+
+        opacity = max(0, (self.intro_progress - 0.4) / 0.6) if self.intro_progress > 0.4 else 0
+
+        font = QFont("Segoe UI", 10)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, 2)
         painter.setFont(font)
-        painter.setPen(QColor(80, 80, 80))
-        painter.drawText(155, text_y + 25, "Email Forwarding Automation")
+        painter.setPen(QColor(148, 163, 184, int(255 * opacity)))
 
-        # Draw the vortex
-        self.draw_vortex(painter)
+        painter.drawText(QRectF(0, 205, self.width(), 25), Qt.AlignCenter,
+                        "EMAIL FORWARDING AUTOMATION")
 
-        # Draw envelopes
-        for env in self.envelopes:
-            self.draw_envelope(painter, env.x, env.y, env.size, env.rotation, env.opacity)
+        painter.restore()
 
-        # Draw progress bar at bottom
-        progress_y = self.splash_height - 50
-        progress_width = self.splash_width - 100
-        progress_x = 50
-        progress_height = 6
+    def _draw_progress_area(self, painter):
+        """Draw progress bar and status."""
+        painter.save()
 
-        # Background track
-        painter.setBrush(QBrush(QColor(COLORS['border'])))
+        opacity = max(0, (self.intro_progress - 0.5) / 0.5) if self.intro_progress > 0.5 else 0
+
+        # Status message
+        font = QFont("Segoe UI", 10)
+        painter.setFont(font)
+        painter.setPen(QColor(148, 163, 184, int(255 * opacity)))
+        painter.drawText(QRectF(0, 248, self.width(), 20), Qt.AlignCenter, self._message)
+
+        # Progress bar dimensions
+        bar_width = 320
+        bar_height = 5
+        bar_x = (self.width() - bar_width) / 2
+        bar_y = 278
+
+        # Track background
+        painter.setBrush(QColor(51, 65, 85, int(255 * opacity)))
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(progress_x, progress_y, progress_width, progress_height, 3, 3)
+        painter.drawRoundedRect(QRectF(bar_x, bar_y, bar_width, bar_height), 2, 2)
 
         # Progress fill
-        fill_width = int((self.progress / 100) * progress_width)
-        if fill_width > 0:
-            painter.setBrush(QBrush(QColor(COLORS['primary'])))
-            painter.drawRoundedRect(progress_x, progress_y, fill_width, progress_height, 3, 3)
+        if self.progress > 0.5:
+            fill_width = (self.progress / 100) * bar_width
 
-        # Loading text with shadow
-        font = QFont('Segoe UI', 9)
+            # Animated gradient (teal to purple)
+            offset = self.wave_offset % (bar_width * 2)
+            fill_grad = QLinearGradient(bar_x - offset, 0, bar_x + bar_width * 2 - offset, 0)
+            fill_grad.setColorAt(0, QColor(93, 154, 150))   # Teal
+            fill_grad.setColorAt(0.33, QColor(127, 179, 175))  # Light teal
+            fill_grad.setColorAt(0.66, QColor(147, 112, 162))  # Purple
+            fill_grad.setColorAt(1, QColor(93, 154, 150))   # Teal
+
+            # Clip and draw
+            painter.setClipRect(QRectF(bar_x, bar_y, fill_width, bar_height))
+            painter.setBrush(fill_grad)
+            painter.setOpacity(opacity)
+            painter.drawRoundedRect(QRectF(bar_x, bar_y, bar_width, bar_height), 2, 2)
+            painter.setClipping(False)
+
+            # Top shine
+            shine = QLinearGradient(0, bar_y, 0, bar_y + bar_height)
+            shine.setColorAt(0, QColor(255, 255, 255, 70))
+            shine.setColorAt(0.5, QColor(255, 255, 255, 0))
+            painter.setClipRect(QRectF(bar_x, bar_y, fill_width, bar_height / 2))
+            painter.setBrush(shine)
+            painter.drawRoundedRect(QRectF(bar_x, bar_y, bar_width, bar_height), 2, 2)
+            painter.setClipping(False)
+
+        # Percentage text
+        painter.setOpacity(opacity)
+        pct_font = QFont("Segoe UI", 9)
+        painter.setFont(pct_font)
+        painter.setPen(QColor(100, 116, 139))
+        painter.drawText(QRectF(bar_x + bar_width + 12, bar_y - 3, 50, 14),
+                        Qt.AlignLeft | Qt.AlignVCenter, f"{int(self.progress)}%")
+
+        painter.restore()
+
+    def _draw_corner_accents(self, painter):
+        """Draw corner accent decorations."""
+        painter.save()
+
+        opacity = self.intro_progress * 0.25
+
+        # Top left - teal
+        pen = QPen(QColor(93, 154, 150, int(255 * opacity)))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.drawLine(15, 12, 40, 12)
+        painter.drawLine(12, 15, 12, 40)
+
+        # Top right - teal
+        painter.drawLine(self.width() - 40, 12, self.width() - 15, 12)
+        painter.drawLine(self.width() - 12, 15, self.width() - 12, 40)
+
+        # Bottom left - purple
+        pen.setColor(QColor(147, 112, 162, int(255 * opacity)))
+        painter.setPen(pen)
+        painter.drawLine(15, self.height() - 12, 40, self.height() - 12)
+        painter.drawLine(12, self.height() - 40, 12, self.height() - 15)
+
+        # Bottom right - purple
+        painter.drawLine(self.width() - 40, self.height() - 12, self.width() - 15, self.height() - 12)
+        painter.drawLine(self.width() - 12, self.height() - 40, self.width() - 12, self.height() - 15)
+
+        painter.restore()
+
+        # Version
+        painter.save()
+        opacity = max(0, (self.intro_progress - 0.6) / 0.4) if self.intro_progress > 0.6 else 0
+
+        font = QFont("Segoe UI", 8)
         painter.setFont(font)
-        painter.setPen(QColor(0, 0, 0, 80))
-        loading_text = "Loading..." if self.progress < 100 else "Ready!"
-        version_text = f"v{APP_VERSION}"
-        painter.drawText(progress_x + 1, progress_y + 23, loading_text)
-        painter.drawText(progress_x + progress_width - 49, progress_y + 23, version_text)
-
-        painter.setPen(QColor(COLORS['text_secondary']))
-        painter.drawText(progress_x, progress_y + 22, loading_text)
-        painter.drawText(progress_x + progress_width - 50, progress_y + 22, version_text)
-
-        painter.end()
+        painter.setPen(QColor(100, 116, 139, int(180 * opacity)))
+        painter.drawText(QRectF(0, 308, self.width(), 20), Qt.AlignCenter, f"v{APP_VERSION}")
+        painter.restore()
 
     def finish_splash(self, window):
         """Finish the splash and show main window."""
+        self.is_fading = True
         self.timer.stop()
         self.progress_timer.stop()
-        self.finish(window)
+        window.show()
+        self.close()
 
 
 # ============================================================================
@@ -2302,7 +2460,6 @@ def main():
     def check_splash_done():
         if splash.progress >= 100:
             splash.finish_splash(window)
-            window.show()
         else:
             QTimer.singleShot(100, check_splash_done)
 
