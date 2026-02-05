@@ -84,7 +84,7 @@ def get_app_data_dir():
     return data_dir
 
 # Version and Update Configuration
-APP_VERSION = "1.6.3"
+APP_VERSION = "1.6.4"
 GITHUB_REPO = "ProcessLogicLabs/DocuShuttle"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 UPDATE_CHECK_INTERVAL = 86400  # Check once per day (seconds)
@@ -1063,14 +1063,14 @@ class OutlookWorker(QThread):
 # CONFIGURATION DIALOG
 # ============================================================================
 class ConfigDialog(QDialog):
-    """Configuration dialog for advanced settings."""
+    """Configuration dialog with settings and instructions."""
 
     def __init__(self, parent=None, prefix="", delay="0", require_attach=True, skip_fwd=True, auto_update=False):
         super().__init__(parent)
 
         try:
-            self.setWindowTitle("Configuration")
-            self.setFixedSize(400, 320)
+            self.setWindowTitle("Configuration & Help")
+            self.setFixedSize(520, 480)
 
             # Try to apply stylesheet
             try:
@@ -1085,8 +1085,18 @@ class ConfigDialog(QDialog):
                     pass
 
             layout = QVBoxLayout(self)
-            layout.setContentsMargins(20, 20, 20, 20)
-            layout.setSpacing(15)
+            layout.setContentsMargins(15, 15, 15, 15)
+            layout.setSpacing(10)
+
+            # Tab widget
+            self.tabs = QTabWidget()
+            layout.addWidget(self.tabs)
+
+            # === Settings Tab ===
+            settings_widget = QWidget()
+            settings_layout = QVBoxLayout(settings_widget)
+            settings_layout.setContentsMargins(15, 15, 15, 15)
+            settings_layout.setSpacing(12)
 
             # Form layout
             form = QFormLayout()
@@ -1136,8 +1146,94 @@ class ConfigDialog(QDialog):
             )
             form.addRow("Auto-Install Updates:", self.auto_update_check)
 
-            layout.addLayout(form)
-            layout.addStretch()
+            settings_layout.addLayout(form)
+            settings_layout.addStretch()
+            self.tabs.addTab(settings_widget, "Settings")
+
+            # === Setup Instructions Tab ===
+            setup_widget = QWidget()
+            setup_layout = QVBoxLayout(setup_widget)
+            setup_layout.setContentsMargins(15, 15, 15, 15)
+
+            setup_text = QTextEdit()
+            setup_text.setReadOnly(True)
+            setup_text.setHtml("""
+            <h3 style="color: #5D9A96; margin-bottom: 10px;">Initial Setup</h3>
+
+            <p><b>1. Outlook Requirements:</b></p>
+            <ul>
+                <li>Microsoft Outlook must be installed and configured</li>
+                <li>You must have at least one email account set up in Outlook</li>
+                <li>Outlook should be running or able to start automatically</li>
+            </ul>
+
+            <p><b>2. Add Recipient Emails:</b></p>
+            <ul>
+                <li>Click the <b>Manage Emails</b> button in the main window</li>
+                <li>Enter recipient email addresses (one per line or comma-separated)</li>
+                <li>These are the addresses emails will be forwarded TO</li>
+            </ul>
+
+            <p><b>3. Configure Settings (Optional):</b></p>
+            <ul>
+                <li><b>File Number Prefixes:</b> Filter emails by file number (e.g., "759,123")</li>
+                <li><b>Delay:</b> Set seconds between forwards to avoid rate limits</li>
+                <li><b>Require Attachments:</b> Only forward emails with attachments</li>
+                <li><b>Skip Previously Forwarded:</b> Prevent duplicate forwards</li>
+            </ul>
+
+            <p><b>4. First Run:</b></p>
+            <ul>
+                <li>Outlook may prompt you to allow access - click <b>Allow</b></li>
+                <li>If using Exchange, ensure you have proper permissions</li>
+            </ul>
+            """)
+            setup_layout.addWidget(setup_text)
+            self.tabs.addTab(setup_widget, "Setup Instructions")
+
+            # === Usage Instructions Tab ===
+            usage_widget = QWidget()
+            usage_layout = QVBoxLayout(usage_widget)
+            usage_layout.setContentsMargins(15, 15, 15, 15)
+
+            usage_text = QTextEdit()
+            usage_text.setReadOnly(True)
+            usage_text.setHtml("""
+            <h3 style="color: #5D9A96; margin-bottom: 10px;">How to Use DocuShuttle</h3>
+
+            <p><b>Basic Workflow:</b></p>
+            <ol>
+                <li>Select a <b>Recipient Email</b> from the dropdown (destination)</li>
+                <li>Enter a <b>Subject Filter</b> to match emails (e.g., "Invoice")</li>
+                <li>Set the <b>Date Range</b> for emails to search</li>
+                <li>Click <b>Search & Forward</b> to process matching emails</li>
+            </ol>
+
+            <p><b>Understanding the Interface:</b></p>
+            <ul>
+                <li><b>Recipient Email:</b> Where forwarded emails will be sent</li>
+                <li><b>Subject Filter:</b> Text to match in email subjects</li>
+                <li><b>Start/End Date:</b> Date range to search in Sent Items</li>
+                <li><b>Log Window:</b> Shows progress and results of operations</li>
+            </ul>
+
+            <p><b>Tips:</b></p>
+            <ul>
+                <li>Use specific subject filters to avoid forwarding unwanted emails</li>
+                <li>Enable "Skip Previously Forwarded" to prevent duplicates</li>
+                <li>Check the log window for detailed operation status</li>
+                <li>Use "Require Attachments" if you only want document emails</li>
+            </ul>
+
+            <p><b>Troubleshooting:</b></p>
+            <ul>
+                <li><b>No emails found:</b> Check date range and subject filter</li>
+                <li><b>Outlook errors:</b> Ensure Outlook is running and accessible</li>
+                <li><b>Permission denied:</b> Allow DocuShuttle access in Outlook prompts</li>
+            </ul>
+            """)
+            usage_layout.addWidget(usage_text)
+            self.tabs.addTab(usage_widget, "Usage Instructions")
 
             # Buttons
             btn_layout = QHBoxLayout()
